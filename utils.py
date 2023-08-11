@@ -1,5 +1,6 @@
 import torch
 from tqdm import tqdm
+import numpy as np
 
 
 def get_loaders(dataset, batch_size, train_test_split=0.9):
@@ -18,6 +19,7 @@ def get_loaders(dataset, batch_size, train_test_split=0.9):
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
+                                               drop_last=True,
                                                collate_fn=collate)
     test_loader = torch.utils.data.DataLoader(test_dataset,
                                               batch_size=batch_size,
@@ -89,3 +91,39 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
                 pbar.update(1)
         
             pbar.close()
+            
+
+def eval_model(model, dataset, test_graph):
+    model.eval()
+    
+    # Initialize counters
+    test_graph_tokens = dataset.tokenize(test_graph)
+    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
+    curr_idx = start_idx
+    #print(dataset.untokenize(test_graph_tokens[:curr_idx]))
+
+    flag = False
+    while not flag and curr_idx < dataset.max_seq_length - 1:
+        # Convert to pytorch
+        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
+        input_tokens[curr_idx:] = 0
+        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
+        # Run model
+        with torch.no_grad():
+            outputs = model(input_tokens).argmax(-1)
+            pred = outputs[0, curr_idx-1]
+            test_graph_tokens[curr_idx] = pred.item()
+            if pred.item() == dataset.pad_token: # Check if we reached the goal
+                flag = True
+        curr_idx += 1
+
+    final_path = dataset.untokenize(test_graph_tokens[:curr_idx])
+    return final_path, test_graph == final_path
+
+
+def get_example_cache(example, model, dataset):
+    tokens = dataset.tokenize(example)[:-1]
+    inputs = torch.from_numpy(tokens).unsqueeze(0).cuda()
+    _, cache = model.run_with_cache(inputs)
+    labels = [dataset.idx2tokens[idx] for idx in tokens]
+    return labels, cache

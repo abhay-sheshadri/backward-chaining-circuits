@@ -1,8 +1,9 @@
-import matplotlib.pyplot as plt
 import math
+import random
+
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-import random
 
 
 def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter = 0.5):

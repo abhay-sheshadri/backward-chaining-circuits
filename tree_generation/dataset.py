@@ -1,8 +1,10 @@
-from . import generate_example, parse_example
-from torch.utils.data import Dataset
+import os
+
 import numpy as np
 import torch
-import os
+from torch.utils.data import Dataset
+
+from . import generate_example, parse_example
 
 
 def generate_dataset_file(n_states, file_name, n_examples):
@@ -27,6 +29,7 @@ class GraphDataset(Dataset):
         self.tokens2idx = {token: idx for idx, token in enumerate(self.idx2tokens)}
         self.max_seq_length = n_states * 4 + 2
         self.pad_token = self.tokens2idx[","]
+        self.start_token = 1
         # Open up dataset file and load+tokenize strings
         self.X = []
         self.masks = []
