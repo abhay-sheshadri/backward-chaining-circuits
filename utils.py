@@ -28,8 +28,8 @@ def get_loaders(dataset, batch_size, train_test_split=0.9):
     return train_loader, test_loader
 
 
-def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=(0.9, 0.99)):
-    optimizer = torch.optim.AdamW(model.parameters(), learning_rate, betas=betas)
+def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=(0.9, 0.99), wd=0.01):
+    optimizer = torch.optim.AdamW(model.parameters(), learning_rate, betas=betas, weight_decay=wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs, 2e-6)
     loss_fn = torch.nn.CrossEntropyLoss()
 
