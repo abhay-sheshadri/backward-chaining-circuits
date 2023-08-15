@@ -5,7 +5,7 @@ import tqdm.auto as tqdm_auto
 import matplotlib.pyplot as plt
 import transformer_lens.utils as utils
 import torch
-import matplotlib.pyplot as plt
+from neel_plotly import line, imshow, scatter
 
 
 def display_head(cache, labels, layer, head, show=True):
@@ -103,4 +103,22 @@ def activation_patching(model, dataset, clean_tokens, corrupted_tokens, comparis
 def plot_activations(patching_result, clean_tokens, dataset):
     # Add the index to the end of the label, because plotly doesn't like duplicate labels
     token_labels = [f"{dataset.idx2tokens[token]}_{index}" for index, token in enumerate(clean_tokens)]
-    plt.imshow(patching_result, x=token_labels, xaxis="Position", yaxis="Layer", title="Activation patching")
+    imshow(patching_result, x=token_labels, xaxis="Position", yaxis="Layer", title="Activation patching")
+
+
+def aggregate_activations(model, dataset, activation_keys, n_samples):
+    # Collect activations for examples
+    agg_cache = {ak: [] for ak in activation_keys}
+    graphs = []
+    for _ in range(n_samples):
+        # Sample example
+        test_graph = generate_example(n_states, np.random.randint(400_000, 600_000), order="random")
+        pred, correct = eval_model(model, dataset, test_graph)
+        if not correct:
+            continue
+        labels, cache = get_example_cache(pred, model, dataset)
+        # Record information
+        graphs.append(pred)
+        for key in activation_keys:
+            agg_cache[key].append(cache[key])
+    return agg_cache, graphs

@@ -1,6 +1,9 @@
 import torch
 from tqdm import tqdm
 import numpy as np
+import wandb
+import os
+import time
 
 
 def get_loaders(dataset, batch_size, train_test_split=0.9):
@@ -28,10 +31,25 @@ def get_loaders(dataset, batch_size, train_test_split=0.9):
     return train_loader, test_loader
 
 
-def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=(0.9, 0.99), wd=0.01):
+def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=(0.9, 0.99), wd=0.01, use_wandb=True):
     optimizer = torch.optim.AdamW(model.parameters(), learning_rate, betas=betas, weight_decay=wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs, 2e-6)
     loss_fn = torch.nn.CrossEntropyLoss()
+    
+    if use_wandb:
+        run_name = f"CoT_{int(time.time())}"
+        opt_kwargs = {
+            "lr": learning_rate,
+            "n_epochs": n_epochs,
+            "betas": betas
+        }
+        wandb.init(
+            project="planning-in-transformers",
+            name=run_name,
+            config=({
+                **model.cfg.__dict__, **opt_kwargs
+            })
+        )
 
     # Start training
     for epoch in range(n_epochs):
@@ -65,6 +83,10 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
 
         scheduler.step()
         pbar.close()
+        
+        if use_wandb:        
+            wandb.log({"train/loss": sum(losses) / len(losses)}, step=epoch)
+            wandb.log({"train/acc": sum(accs)/len(accs)}, step=epoch)
     
         model.eval()
         with torch.no_grad():
@@ -91,7 +113,19 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
                 pbar.update(1)
         
             pbar.close()
+        
+        if use_wandb:
+            torch.save(model.state_dict(), f"checkpoint_{epoch}.pt")
+            wandb.log({"test/loss": sum(losses)/len(losses)}, step=epoch)
+            wandb.log({"test/acc": sum(accs)/len(accs)}, step=epoch)
             
+            # Save model
+            artifact = wandb.Artifact(run_name, type="model")
+            artifact.add_file(local_path="model.pt",
+                            name=f"checkpoint_{epoch}.pt")
+            wandb.log_artifact(artifact)
+            os.remove(f"checkpoint_{epoch}.pt")
+    
 
 def eval_model(model, dataset, test_graph):
     model.eval()
@@ -100,7 +134,6 @@ def eval_model(model, dataset, test_graph):
     test_graph_tokens = dataset.tokenize(test_graph)
     start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
     curr_idx = start_idx
-    #print(dataset.untokenize(test_graph_tokens[:curr_idx]))
 
     flag = False
     while not flag and curr_idx < dataset.max_seq_length - 1:
@@ -113,7 +146,37 @@ def eval_model(model, dataset, test_graph):
             outputs = model(input_tokens).argmax(-1)
             pred = outputs[0, curr_idx-1]
             test_graph_tokens[curr_idx] = pred.item()
-            if pred.item() == dataset.pad_token: # Check if we reached the goal
+            if pred.item() == dataset.pad_token:  # Check if we reached the goal
+                flag = True
+        curr_idx += 1
+
+    final_path = dataset.untokenize(test_graph_tokens[:curr_idx])
+    return final_path, test_graph == final_path
+
+
+def eval_model_with_hook(model, dataset, test_graph, hook_name, hook_fn):
+    model.eval()
+    
+    # Initialize counters
+    test_graph_tokens = dataset.tokenize(test_graph)
+    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
+    curr_idx = start_idx
+
+    flag = False
+    while not flag and curr_idx < dataset.max_seq_length - 1:
+        # Convert to pytorch
+        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
+        input_tokens[curr_idx:] = 0
+        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
+        # Run model
+        with torch.no_grad():
+            outputs = model.run_with_hooks(
+                input_tokens,
+                fwd_hooks=[(hook_name, hook_fn)]
+            ).argmax(-1)
+            pred = outputs[0, curr_idx-1]
+            test_graph_tokens[curr_idx] = pred.item()
+            if pred.item() == dataset.pad_token:  # Check if we reached the goal
                 flag = True
         curr_idx += 1
 
@@ -122,6 +185,7 @@ def eval_model(model, dataset, test_graph):
 
 
 def get_example_cache(example, model, dataset):
+    # Output tokens and forward cache
     tokens = dataset.tokenize(example)[:-1]
     inputs = torch.from_numpy(tokens).unsqueeze(0).cuda()
     _, cache = model.run_with_cache(inputs)
