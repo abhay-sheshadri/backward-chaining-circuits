@@ -1,9 +1,11 @@
-import torch
-from tqdm import tqdm
-import numpy as np
-import wandb
 import os
 import time
+
+import numpy as np
+import torch
+from tqdm import tqdm
+
+import wandb
 
 
 def get_loaders(dataset, batch_size, train_test_split=0.9):

@@ -1,11 +1,19 @@
-import plotly.express as px
-import numpy as np
 from functools import partial
-import tqdm.auto as tqdm_auto
+
 import matplotlib.pyplot as plt
-import transformer_lens.utils as utils
+import numpy as np
+import plotly.express as px
 import torch
-from neel_plotly import line, imshow, scatter
+import tqdm.auto as tqdm_auto
+import transformer_lens.utils as utils
+from neel_plotly import imshow, line, scatter
+
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import f1_score
+
+from tree_generation import generate_example
+from utils import *
 
 
 def display_head(cache, labels, layer, head, show=True):
@@ -106,7 +114,7 @@ def plot_activations(patching_result, clean_tokens, dataset):
     imshow(patching_result, x=token_labels, xaxis="Position", yaxis="Layer", title="Activation patching")
 
 
-def aggregate_activations(model, dataset, activation_keys, n_samples):
+def aggregate_activations(model, dataset, activation_keys, n_states, n_samples):
     # Collect activations for examples
     agg_cache = {ak: [] for ak in activation_keys}
     graphs = []
@@ -122,3 +130,18 @@ def aggregate_activations(model, dataset, activation_keys, n_samples):
         for key in activation_keys:
             agg_cache[key].append(cache[key])
     return agg_cache, graphs
+
+
+def linear_probing(X, y, rank=None):
+    if rank is not None:
+        # Use pca to reduce the rank of the data
+        pca = PCA(n_components=rank)  # k is the desired number of components
+        X = pca.fit_transform(X)
+    # instantiate the model (using the default parameters)
+    out_logreg = LogisticRegression(multi_class='ovr', solver='liblinear')
+    # fit the model with data
+    out_logreg.fit(X, y)
+    # predict the response for new observations
+    y_pred = out_logreg.predict(X)
+    score = f1_score(y, y_pred, average='macro')
+    return score
