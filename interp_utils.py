@@ -3,11 +3,11 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import torch
 import tqdm.auto as tqdm_auto
 import transformer_lens.utils as utils
 from neel_plotly import imshow, line, scatter
-
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
@@ -145,3 +145,30 @@ def linear_probing(X, y, rank=None):
     y_pred = out_logreg.predict(X)
     score = f1_score(y, y_pred, average='macro')
     return score
+
+
+def logit_lens(pred, model, dataset):
+    # Get labels and cache
+    labels, cache = get_example_cache(pred, model, dataset)
+    # Calculate end idx of the labels
+    def num_last(arr, char):
+        fidx = len(arr) - 1
+        while arr[fidx] == char and fidx >= 0:
+            fidx -= 1
+        return fidx + 1
+    end = num_last(labels, ",")
+    # Get the logit lens for each layer's resid_post
+    outs = []
+    for layer in range(6):
+        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+        out_proj = res_stream @ model.W_U
+        out_proj = out_proj.argmax(-1)
+        lens_out = [dataset.idx2tokens[i] for i in out_proj]
+        outs.append([f"Layer {layer} resid_post LL"] + lens_out[47:end])
+    # Plot data
+    header = dict(values=["Current Input"] + labels[47:end])
+    rows = dict(values=np.array(outs).T.tolist())
+    table = go.Table(header=header, cells=rows)
+    layout = go.Layout(width=1000, height=700)
+    figure = go.Figure(data=[table], layout=layout)
+    figure.show()
