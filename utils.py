@@ -4,6 +4,7 @@ import time
 import numpy as np
 import torch
 from tqdm import tqdm
+import networkx as nx
 
 import wandb
 
@@ -193,3 +194,38 @@ def get_example_cache(example, model, dataset):
     _, cache = model.run_with_cache(inputs)
     labels = [dataset.idx2tokens[idx] for idx in tokens]
     return labels, cache
+
+
+def extract_adj_matrix(example_str):
+    # Extract edgelist
+    graph = example_str.split("|")[0]
+    graph = graph.split(",")
+    edgelist = []
+    nodes = set()
+    for e in graph:
+        out_node = int(e.split(">")[0])
+        in_node = int(e.split(">")[1])
+        edgelist.append((out_node, in_node))
+        nodes.add(out_node)
+        nodes.add(in_node)
+    # Extract path
+    goal = example_str.split("|")[1]
+    goal_node = int(goal.split(":")[0])
+    path = goal.split(":")[1].split(">")
+    path = [int(p) for p in path]
+    path_edges = list(zip(path[:-1], path[1:]))
+    # Make sure every edge in the path is valid
+    for edge in path_edges:
+        assert edge in edgelist
+    # Create networkx graph
+    G = nx.DiGraph()
+    G.add_nodes_from(range(len(nodes)))
+    for edge in edgelist:
+        if edge in path_edges:
+            color = "red"
+        else:
+            color = "black"
+        G.add_edge(edge[0], edge[1], color=color)
+    # Convert to numpy adjacency matrix
+    adjacency_matrix_sparse = nx.adjacency_matrix(G)
+    return adjacency_matrix_sparse.toarray()

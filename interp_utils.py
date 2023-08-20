@@ -172,3 +172,50 @@ def logit_lens(pred, model, dataset):
     layout = go.Layout(width=1000, height=700)
     figure = go.Figure(data=[table], layout=layout)
     figure.show()
+
+
+def logit_lens_correct_probs(pred, model, dataset, position):
+    # Get labels and cache
+    labels, cache = get_example_cache(pred, model, dataset)
+    # Get the probability of the correct next token at every layer
+    probs = []
+    correct_token = labels[position+1]
+    correct_token_idx = dataset.tokens2idx[correct_token]
+    for layer in range(6):
+        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+        out_proj = res_stream @ model.W_U
+        out_proj = out_proj.softmax(-1)
+        probs.append( out_proj[position, correct_token_idx].item() )
+    # Plot data
+    plt.plot(probs)
+    plt.xlabel("Layer")
+    plt.ylabel(f"Probability of {correct_token}")
+    plt.title(f"Probability of Correct Token at {labels[position]}")
+    plt.show()
+    
+
+def logit_lens_all_probs(pred, model, dataset, position):
+    # Get labels and cache
+    labels, cache = get_example_cache(pred, model, dataset)
+    current_node = int(labels[position].split(">")[-1])
+    current_neighbors = extract_adj_matrix(pred)[current_node]
+    current_neighbors = [f">{i}" for i in range(dataset.n_states) if current_neighbors[i] > 0]
+    # Get the logit lens for each layer's resid_post
+    probs = {key: [] for key in current_neighbors}
+    correct_token = labels[position+1]
+    correct_token_idx = dataset.tokens2idx[correct_token]
+    for layer in range(6):
+        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+        out_proj = res_stream @ model.W_U
+        out_proj = out_proj.softmax(-1)
+        for key in probs:
+            key_prob = out_proj[position, dataset.tokens2idx[key]].item()
+            probs[key].append(key_prob)
+    # Plot data
+    for key in probs:
+        plt.plot(probs[key], label=key)
+    plt.xlabel("Layer")
+    plt.ylabel(f"Probability of Token")
+    plt.title(f"Probability of Correct Token at {labels[position]}")
+    plt.legend()
+    plt.show()

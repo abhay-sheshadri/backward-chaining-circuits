@@ -25,6 +25,7 @@ class GraphDataset(Dataset):
     def __init__(self, n_states, file_name, n_examples):
         # Create a list of vocab
         number_tokens = sorted([str(i) for i in range(n_states)], key=lambda x: len(x), reverse=True)
+        self.n_states = n_states
         self.idx2tokens = [",", ":", "|"] + [f">{t}" for t in number_tokens] + number_tokens
         self.tokens2idx = {token: idx for idx, token in enumerate(self.idx2tokens)}
         self.max_seq_length = n_states * 4 + 2
