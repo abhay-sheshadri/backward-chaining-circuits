@@ -128,63 +128,6 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
                             name=f"checkpoint_{epoch}.pt")
             wandb.log_artifact(artifact)
             os.remove(f"checkpoint_{epoch}.pt")
-    
-
-def eval_model(model, dataset, test_graph):
-    model.eval()
-    
-    # Initialize counters
-    test_graph_tokens = dataset.tokenize(test_graph)
-    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
-    curr_idx = start_idx
-
-    flag = False
-    while not flag and curr_idx < dataset.max_seq_length - 1:
-        # Convert to pytorch
-        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
-        input_tokens[curr_idx:] = 0
-        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
-        # Run model
-        with torch.no_grad():
-            outputs = model(input_tokens).argmax(-1)
-            pred = outputs[0, curr_idx-1]
-            test_graph_tokens[curr_idx] = pred.item()
-            if pred.item() == dataset.pad_token:  # Check if we reached the goal
-                flag = True
-        curr_idx += 1
-
-    final_path = dataset.untokenize(test_graph_tokens[:curr_idx])
-    return final_path, test_graph == final_path
-
-
-def eval_model_with_hook(model, dataset, test_graph, hook_name, hook_fn):
-    model.eval()
-    
-    # Initialize counters
-    test_graph_tokens = dataset.tokenize(test_graph)
-    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
-    curr_idx = start_idx
-
-    flag = False
-    while not flag and curr_idx < dataset.max_seq_length - 1:
-        # Convert to pytorch
-        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
-        input_tokens[curr_idx:] = 0
-        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
-        # Run model
-        with torch.no_grad():
-            outputs = model.run_with_hooks(
-                input_tokens,
-                fwd_hooks=[(hook_name, hook_fn)]
-            ).argmax(-1)
-            pred = outputs[0, curr_idx-1]
-            test_graph_tokens[curr_idx] = pred.item()
-            if pred.item() == dataset.pad_token:  # Check if we reached the goal
-                flag = True
-        curr_idx += 1
-
-    final_path = dataset.untokenize(test_graph_tokens[:curr_idx])
-    return final_path, test_graph == final_path
 
 
 def get_example_cache(example, model, dataset):
@@ -229,3 +172,51 @@ def extract_adj_matrix(example_str):
     # Convert to numpy adjacency matrix
     adjacency_matrix_sparse = nx.adjacency_matrix(G)
     return adjacency_matrix_sparse.toarray()
+
+
+def num_last(arr, char):
+    fidx = len(arr) - 1
+    while arr[fidx] == char and fidx >= 0:
+        fidx -= 1
+    return fidx + 1
+
+
+def eval_model(model, dataset, test_graph):
+    model.eval()
+    
+    # Initialize counters
+    test_graph_tokens = dataset.tokenize(test_graph)
+    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 2
+    curr_idx = start_idx
+
+    flag = False
+    while not flag and curr_idx < dataset.max_seq_length - 1:
+        # Convert to pytorch
+        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
+        input_tokens[curr_idx:] = 0
+        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
+        # Run model
+        with torch.no_grad():
+            outputs = model(input_tokens).argmax(-1)
+            pred = outputs[0, curr_idx-1]
+            test_graph_tokens[curr_idx] = pred.item()
+            if pred.item() == dataset.pad_token:  # Check if we reached the goal
+                flag = True
+        curr_idx += 1
+
+    final_path = dataset.untokenize(test_graph_tokens[:curr_idx])
+    return final_path, test_graph == final_path
+
+
+def is_model_correct(model, dataset, test_graph):
+    model.eval()
+    # Initialize counters
+    test_graph_tokens = dataset.tokenize(test_graph)
+    start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 1
+    end_idx = num_last([dataset.idx2tokens[i] for i in test_graph_tokens], ",") - 1
+    input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
+    input_tokens = input_tokens.unsqueeze(0)[:, :-1]
+    # Run model
+    with torch.no_grad():
+        outputs = model(input_tokens).argmax(-1)
+    return torch.all(outputs[:, start_idx:end_idx] == input_tokens[:, start_idx+1:end_idx+1]).item()
