@@ -97,7 +97,7 @@ def attention_knockout_discovery(model, dataset, test_graph):
                     # Block new edge
                     add_attention_blockout(model, l, h, i, j)
                     # If correct, add it to the ablations list
-                    pred, correct = eval_model(model, dataset, test_graph)
+                    correct = is_model_correct(model, dataset, test_graph)
                     if correct:
                         ablated_edges[l].append((h, i, j))
                     else:
@@ -197,11 +197,6 @@ def logit_lens(pred, model, dataset):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
     # Calculate end idx of the labels
-    def num_last(arr, char):
-        fidx = len(arr) - 1
-        while arr[fidx] == char and fidx >= 0:
-            fidx -= 1
-        return fidx + 1
     end = num_last(labels, ",")
     # Get the logit lens for each layer's resid_post
     outs = []
@@ -244,7 +239,7 @@ def logit_lens_correct_probs(pred, model, dataset, position):
     plt.ylabel(f"Probability of {correct_token}")
     plt.title(f"Probability of Correct Token at {labels[position]}")
     plt.show()
-    
+
 
 def logit_lens_all_probs(pred, model, dataset, position):
     # Get labels and cache
