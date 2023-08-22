@@ -49,15 +49,61 @@ def display_head(cache, labels, layer, head, show=True):
         return fig
 
 
-def mask_model_att(model, index_start, index_end, layer_start, layer_end):
+def add_attention_blockout(model, layer, head, current, attending):
     # Define hook function
-    def attention_score_hook_edges(resid_pre, hook, position_start, position_end):
-        resid_pre[:, :, position_start:position_end, :] = 0
+    def attention_score_hook_edges(resid_pre, hook, r, c):
+        # Prevent pos r from attending to c
+        resid_pre[:, head, r, c] = -float('inf')
         return resid_pre
     # Add hook to every layer
-    for layer in range(layer_start, layer_end):
-        temp_hook_fn = partial(attention_score_hook_edges, position_start=index_start, position_end=index_end)
-        model.blocks[layer].attn.hook_pattern.add_hook(temp_hook_fn)
+    temp_hook_fn = partial(attention_score_hook_edges, r=current, c=attending)
+    model.blocks[layer].attn.hook_attn_scores.add_hook(temp_hook_fn)
+
+
+def add_attention_blockout_parallel(model, layer, indices):
+    # indices is a list of (current, attending) 
+    indices = torch.tensor(indices).t()
+    # Define hook function
+    def attention_score_hook_edges(resid_pre, hook, indices):
+        # Prevent pos r from attending to c
+        resid_pre[:, indices[0], indices[1], indices[2]] = -100000
+        return resid_pre
+    # Add hook to every layer
+    temp_hook_fn = partial(attention_score_hook_edges, indices=indices)
+    model.blocks[layer].attn.hook_attn_scores.add_hook(temp_hook_fn)
+
+
+def attention_knockout_discovery(model, dataset, test_graph):
+    # Evaluate model on test_graph
+    model.reset_hooks()
+    pred, correct = eval_model(model, dataset, test_graph)
+    assert correct
+    labels, cache = get_example_cache(pred, model, dataset)
+    # Iterate over heads in each layer
+    ablated_edges = {i: [] for i in range(model.cfg.n_layers)}
+    important_edges = {i: [] for i in range(model.cfg.n_layers)}
+    for l in range(model.cfg.n_layers-1, -1, -1):
+        for h in range(model.cfg.n_heads):
+            # Check if we can remove attention edges without affecting the correctness of the output
+            for i in range(model.cfg.n_ctx):
+                for j in range(i, -1, -1):
+                    model.reset_hooks()                  
+                    # Add already ablated edges
+                    for L in ablated_edges.keys():
+                        inds = ablated_edges[L]
+                        if len(inds) == 0:
+                            continue
+                        add_attention_blockout_parallel(model, L, inds)
+                    # Block new edge
+                    add_attention_blockout(model, l, h, i, j)
+                    # If correct, add it to the ablations list
+                    pred, correct = eval_model(model, dataset, test_graph)
+                    if correct:
+                        ablated_edges[l].append((h, i, j))
+                    else:
+                        important_edges[l].append((h, i, j))
+                        print(f"Breaking: Layer {l} head {h}, labels[{i}] attending to labels[{j}], {labels[i]} attending to {labels[j]}")
+    return ablated_edges, important_edges
 
 
 def logits_to_logit_diff(clean_tokens, corrupted_tokens, logits, comparison_index):
@@ -159,12 +205,15 @@ def logit_lens(pred, model, dataset):
     end = num_last(labels, ",")
     # Get the logit lens for each layer's resid_post
     outs = []
-    for layer in range(6):
-        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+    for layer in range(1, 7):
+        if layer < 6:
+            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+        else:
+            res_stream = cache["ln_final.hook_normalized"][0]
         out_proj = res_stream @ model.W_U
         out_proj = out_proj.argmax(-1)
         lens_out = [dataset.idx2tokens[i] for i in out_proj]
-        outs.append([f"Layer {layer} resid_post LL"] + lens_out[47:end])
+        outs.append([f"Layer {layer} LL"] + lens_out[47:end])
     # Plot data
     header = dict(values=["Current Input"] + labels[47:end])
     rows = dict(values=np.array(outs).T.tolist())
@@ -181,8 +230,11 @@ def logit_lens_correct_probs(pred, model, dataset, position):
     probs = []
     correct_token = labels[position+1]
     correct_token_idx = dataset.tokens2idx[correct_token]
-    for layer in range(6):
-        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+    for layer in range(1, model.cfg.n_layers + 1):
+        if layer < model.cfg.n_layers:
+            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+        else:
+            res_stream = cache["ln_final.hook_normalized"][0]
         out_proj = res_stream @ model.W_U
         out_proj = out_proj.softmax(-1)
         probs.append( out_proj[position, correct_token_idx].item() )
@@ -204,8 +256,11 @@ def logit_lens_all_probs(pred, model, dataset, position):
     probs = {key: [] for key in current_neighbors}
     correct_token = labels[position+1]
     correct_token_idx = dataset.tokens2idx[correct_token]
-    for layer in range(6):
-        res_stream = cache[utils.get_act_name("resid_post", layer)][0]
+    for layer in range(1, model.cfg.n_layers+1):
+        if layer < model.cfg.n_layers:
+            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+        else:
+            res_stream = cache["ln_final.hook_normalized"][0]
         out_proj = res_stream @ model.W_U
         out_proj = out_proj.softmax(-1)
         for key in probs:
