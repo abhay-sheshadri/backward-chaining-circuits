@@ -83,3 +83,26 @@ def generate_example(n_states, seed, order="random"):
     string = string + f"|{end_node}:"
     return (string + ">".join([str(p) for p in path]))
 
+
+def generate_all_examples(n_states, seed):
+    # Sample random edge list
+    rng = np.random.default_rng(seed=seed)
+    edgelist = sample_tree_graph(n_states, seed)
+    shuffled_nodes = np.arange(n_states)
+    rng.shuffle(shuffled_nodes)
+    edgelist = [(shuffled_nodes[i], shuffled_nodes[j]) for i, j in edgelist]
+    edgelist = edgelist[::-1]
+    # Get all starts and ends
+    start_node = shuffled_nodes[0]
+    source_nodes = set([source for source, target in edgelist])
+    target_nodes = set([target for source, target in edgelist])
+    leaf_nodes = target_nodes - source_nodes
+    # Create a string for each goal node
+    examples = []
+    for end_node in list(leaf_nodes):
+        path = shortest_path(edgelist, n_states, start_node, end_node)
+        # Convert to a series of tokens
+        string = ",".join([f"{i}>{j}" for i, j in edgelist])
+        string = string + f"|{end_node}:"
+        examples.append(string + ">".join([str(p) for p in path]))
+    return examples

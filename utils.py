@@ -208,15 +208,19 @@ def eval_model(model, dataset, test_graph):
     return final_path, test_graph == final_path
 
 
-def is_model_correct(model, dataset, test_graph):
+def is_model_correct(model, dataset, test_graph, return_probs=False):
     model.eval()
     # Initialize counters
     test_graph_tokens = dataset.tokenize(test_graph)
     start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 1
-    end_idx = num_last([dataset.idx2tokens[i] for i in test_graph_tokens], ",") - 1
+    end_idx = num_last([dataset.idx2tokens[i] for i in test_graph_tokens], ",")
     input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
     input_tokens = input_tokens.unsqueeze(0)[:, :-1]
     # Run model
     with torch.no_grad():
-        outputs = model(input_tokens).argmax(-1)
-    return torch.all(outputs[:, start_idx:end_idx] == input_tokens[:, start_idx+1:end_idx+1]).item()
+        probs = model(input_tokens).softmax(-1)
+        outputs = probs.argmax(-1)
+    correct = torch.all(outputs[:, start_idx:end_idx] == input_tokens[:, start_idx+1:end_idx+1]).item()
+    if return_probs:
+        return correct, probs[0, torch.arange(start_idx, end_idx), input_tokens[0, start_idx+1:end_idx+1]]
+    return correct
