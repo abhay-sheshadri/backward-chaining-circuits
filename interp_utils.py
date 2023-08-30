@@ -270,8 +270,11 @@ def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
         else:
             act_name = "ln_final.hook_normalized"
         res_stream = cache[act_name][0]
-        out_proj = res_stream @ model.W_U
-        out_proj = out_proj.softmax(-1)
+        if lenses is not None:
+            out_proj = res_stream @ lenses[act_name]
+        else:
+            out_proj = res_stream @ model.W_U
+            out_proj = out_proj.softmax(-1)
         probs.append( out_proj[position, correct_token_idx].item() )
     # Plot data
     plt.plot(probs)
@@ -297,8 +300,11 @@ def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
         else:
             act_name = "ln_final.hook_normalized"
         res_stream = cache[act_name][0]
-        out_proj = res_stream @ model.W_U
-        out_proj = out_proj.softmax(-1)
+        if lenses is not None:
+            out_proj = res_stream @ lenses[act_name]
+        else:
+            out_proj = res_stream @ model.W_U
+            out_proj = out_proj.softmax(-1)
         for key in probs:
             key_prob = out_proj[position, dataset.tokens2idx[key]].item()
             probs[key].append(key_prob)
