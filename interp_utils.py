@@ -6,10 +6,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import torch
 import tqdm.auto as tqdm_auto
-import transformer_lens.utils as utils
+import transformer_lens.utils as tl_util
 from neel_plotly import imshow, line, scatter
+
 from sklearn.decomposition import PCA
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import f1_score
 
 from tree_generation import generate_example
@@ -176,7 +177,7 @@ def activation_patching(model, dataset, clean_tokens, corrupted_tokens, comparis
             temp_hook_fn = partial(residual_stream_patching_hook, position=position)
             # Run the model with the patching hook
             patched_logits = model.run_with_hooks(corrupted_tokens, fwd_hooks=[
-                (utils.get_act_name("resid_pre", layer), temp_hook_fn)
+                (tl_util.get_act_name("resid_pre", layer), temp_hook_fn)
             ])
             # Calculate the logit difference
             patched_logit_diff = logits_to_logit_diff(clean_tokens, corrupted_tokens, patched_logits, comparison_index).detach()
@@ -201,12 +202,12 @@ def aggregate_activations(model, dataset, activation_keys, n_states, n_samples):
     for _ in range(n_samples):
         # Sample example
         test_graph = generate_example(n_states, np.random.randint(400_000, 600_000), order="random")
-        pred, correct = eval_model(model, dataset, test_graph)
+        correct = is_model_correct(model, dataset, test_graph)
         if not correct:
             continue
-        labels, cache = get_example_cache(pred, model, dataset)
+        labels, cache = get_example_cache(test_graph, model, dataset)
         # Record information
-        graphs.append(pred)
+        graphs.append(test_graph)
         for key in activation_keys:
             agg_cache[key].append(cache[key])
     return agg_cache, graphs
@@ -227,19 +228,23 @@ def linear_probing(X, y, rank=None):
     return score
 
 
-def logit_lens(pred, model, dataset):
+def logit_lens(pred, model, dataset, lenses=None):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
     # Calculate end idx of the labels
     end = num_last(labels, ",")
     # Get the logit lens for each layer's resid_post
     outs = []
-    for layer in range(1, 7):
-        if layer < 6:
-            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+    for layer in range(1, model.cfg.n_layers+1):
+        if layer < model.cfg.n_layers:
+            act_name = tl_util.get_act_name("normalized", layer, "ln1")
         else:
-            res_stream = cache["ln_final.hook_normalized"][0]
-        out_proj = res_stream @ model.W_U
+            act_name = "ln_final.hook_normalized"
+        res_stream = cache[act_name][0]
+        if lenses is not None:
+            out_proj = res_stream @ lenses[act_name]
+        else:
+            out_proj = res_stream @ model.W_U
         out_proj = out_proj.argmax(-1)
         lens_out = [dataset.idx2tokens[i] for i in out_proj]
         outs.append([f"Layer {layer} LL"] + lens_out[47:end])
@@ -252,20 +257,24 @@ def logit_lens(pred, model, dataset):
     figure.show()
 
 
-def logit_lens_correct_probs(pred, model, dataset, position):
+def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
     # Get the probability of the correct next token at every layer
     probs = []
     correct_token = labels[position+1]
     correct_token_idx = dataset.tokens2idx[correct_token]
-    for layer in range(1, model.cfg.n_layers + 1):
+    for layer in range(1, model.cfg.n_layers+1):
         if layer < model.cfg.n_layers:
-            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+            act_name = tl_util.get_act_name("normalized", layer, "ln1")
         else:
-            res_stream = cache["ln_final.hook_normalized"][0]
-        out_proj = res_stream @ model.W_U
-        out_proj = out_proj.softmax(-1)
+            act_name = "ln_final.hook_normalized"
+        res_stream = cache[act_name][0]
+        if lenses is not None:
+            out_proj = res_stream @ lenses[act_name]
+        else:
+            out_proj = res_stream @ model.W_U
+            out_proj = out_proj.softmax(-1)
         probs.append( out_proj[position, correct_token_idx].item() )
     # Plot data
     plt.plot(probs)
@@ -275,7 +284,7 @@ def logit_lens_correct_probs(pred, model, dataset, position):
     plt.show()
 
 
-def logit_lens_all_probs(pred, model, dataset, position):
+def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
     current_node = int(labels[position].split(">")[-1])
@@ -287,11 +296,15 @@ def logit_lens_all_probs(pred, model, dataset, position):
     correct_token_idx = dataset.tokens2idx[correct_token]
     for layer in range(1, model.cfg.n_layers+1):
         if layer < model.cfg.n_layers:
-            res_stream = cache[utils.get_act_name("normalized", layer, "ln1")][0]
+            act_name = tl_util.get_act_name("normalized", layer, "ln1")
         else:
-            res_stream = cache["ln_final.hook_normalized"][0]
-        out_proj = res_stream @ model.W_U
-        out_proj = out_proj.softmax(-1)
+            act_name = "ln_final.hook_normalized"
+        res_stream = cache[act_name][0]
+        if lenses is not None:
+            out_proj = res_stream @ lenses[act_name]
+        else:
+            out_proj = res_stream @ model.W_U
+            out_proj = out_proj.softmax(-1)
         for key in probs:
             key_prob = out_proj[position, dataset.tokens2idx[key]].item()
             probs[key].append(key_prob)
@@ -303,3 +316,43 @@ def logit_lens_all_probs(pred, model, dataset, position):
     plt.title(f"Probability of Correct Token at {labels[position]}")
     plt.legend()
     plt.show()
+
+
+def calculate_tuned_lens(model, dataset):
+    # Get all the activations
+    acts, graphs = aggregate_activations(
+        model=model,
+        dataset=dataset,
+        activation_keys=[tl_util.get_act_name("normalized", block, "ln1") 
+                        for block in range(1, model.cfg.n_layers)] + ["ln_final.hook_normalized"],
+        n_states=dataset.n_states,
+        n_samples=1024,
+    )
+    # Create input/output pairs
+    X = {key: [] for key in acts.keys()}
+    y = []
+    for gidx, graph in enumerate(graphs):
+        # Get output labels
+        tokens = dataset.tokenize(graph)[:-1]
+        start_idx = np.where(tokens == dataset.start_token)[0].item() + 2
+        labels = [dataset.idx2tokens[idx] for idx in tokens]
+        end_idx = num_last(labels, ",") + 1
+        y.append(tokens[start_idx:end_idx]) 
+        # Iterate over all layers residual streams
+        for key in X.keys():
+            streams = acts[key][gidx][0, start_idx-1:end_idx-1]
+            X[key].append(streams)
+    # Convert everything to np arrays
+    for key in X.keys():
+        X[key] = torch.cat(X[key], dim=0).detach().cpu().numpy()
+    y = np.concatenate(y, axis=0)
+    y = np.eye(len(dataset.idx2tokens))[y]
+    # Calculate a lens for every layer
+    translators = {}
+    for key in X.keys():
+        tprobe = LinearRegression(fit_intercept=False)
+        tprobe.fit(X[key], y)
+        print(tprobe.score(X[key], y))
+        translators[key] = torch.from_numpy(
+            np.transpose(tprobe.coef_)).to(model.cfg.device)
+    return translators
