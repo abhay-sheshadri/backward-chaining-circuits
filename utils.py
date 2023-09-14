@@ -58,6 +58,13 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
             })
         )
 
+        # save initialization
+        torch.save(model.state_dict(), f"./{save_path}/checkpoint_0.pt")
+        artifact = wandb.Artifact(run_name, type="model")
+        artifact.add_file(local_path=f"./{save_path}/checkpoint_0.pt",
+                        name=f"checkpoint_0.pt")
+        wandb.log_artifact(artifact)
+
     # Start training
     for epoch in range(n_epochs):
 
@@ -122,16 +129,21 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
             pbar.close()
         
         if use_wandb:
-            torch.save(model.state_dict(), f"./{save_path}/checkpoint_{epoch}.pt")
+            checkpoint = { 
+                'epoch': epoch,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler
+            }
+            torch.save(checkpoint, f"./{save_path}/checkpoint_{epoch}.pt")
             wandb.log({"test/loss": sum(losses)/len(losses)}, step=epoch)
             wandb.log({"test/acc": sum(accs)/len(accs)}, step=epoch)
             
             # Save model
             artifact = wandb.Artifact(run_name, type="model")
-            artifact.add_file(local_path="model.pt",
+            artifact.add_file(local_path=f"./{save_path}/checkpoint_{epoch}.pt",
                             name=f"checkpoint_{epoch}.pt")
             wandb.log_artifact(artifact)
-            os.remove(f"checkpoint_{epoch}.pt")
 
 
 def get_example_cache(example, model, dataset):
