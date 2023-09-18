@@ -38,9 +38,13 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
     optimizer = torch.optim.AdamW(model.parameters(), learning_rate, betas=betas, weight_decay=wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs, 2e-6)
     loss_fn = torch.nn.CrossEntropyLoss()
+
+    current_time = int(time.time())
+    save_path = f"./outputs/run_{current_time}"
+    os.makedirs(save_path, exist_ok=True)
     
     if use_wandb:
-        run_name = f"CoT_{int(time.time())}"
+        run_name = f"CoT_Ext_{current_time}"
         opt_kwargs = {
             "lr": learning_rate,
             "n_epochs": n_epochs,
@@ -53,6 +57,13 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
                 **model.cfg.__dict__, **opt_kwargs
             })
         )
+
+        # save initialization
+        torch.save(model.state_dict(), f"./{save_path}/checkpoint_0.pt")
+        artifact = wandb.Artifact(run_name, type="model")
+        artifact.add_file(local_path=f"./{save_path}/checkpoint_0.pt",
+                        name=f"checkpoint_0.pt")
+        wandb.log_artifact(artifact)
 
     # Start training
     for epoch in range(n_epochs):
@@ -118,16 +129,21 @@ def train(model, train_loader, test_loader, n_epochs, learning_rate=3e-4, betas=
             pbar.close()
         
         if use_wandb:
-            torch.save(model.state_dict(), f"checkpoint_{epoch}.pt")
+            checkpoint = { 
+                'epoch': epoch,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler
+            }
+            torch.save(checkpoint, f"./{save_path}/checkpoint_{epoch}.pt")
             wandb.log({"test/loss": sum(losses)/len(losses)}, step=epoch)
             wandb.log({"test/acc": sum(accs)/len(accs)}, step=epoch)
             
             # Save model
             artifact = wandb.Artifact(run_name, type="model")
-            artifact.add_file(local_path="model.pt",
+            artifact.add_file(local_path=f"./{save_path}/checkpoint_{epoch}.pt",
                             name=f"checkpoint_{epoch}.pt")
             wandb.log_artifact(artifact)
-            os.remove(f"checkpoint_{epoch}.pt")
 
 
 def get_example_cache(example, model, dataset):
@@ -158,8 +174,8 @@ def extract_adj_matrix(example_str, power=None):
     path = [int(p) for p in path]
     path_edges = list(zip(path[:-1], path[1:]))
     # Make sure every edge in the path is valid
-    for edge in path_edges:
-        assert edge in edgelist
+    #for edge in path_edges:
+    #    assert edge in edgelist
     # Create networkx graph
     G = nx.DiGraph()
     G.add_nodes_from(range(len(nodes)))
