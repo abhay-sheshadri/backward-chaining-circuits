@@ -139,7 +139,7 @@ def get_example_cache(example, model, dataset):
     return labels, cache
 
 
-def extract_adj_matrix(example_str):
+def extract_adj_matrix(example_str, power=None):
     # Extract edgelist
     graph = example_str.split("|")[0]
     graph = graph.split(",")
@@ -171,7 +171,17 @@ def extract_adj_matrix(example_str):
         G.add_edge(edge[0], edge[1], color=color)
     # Convert to numpy adjacency matrix
     adjacency_matrix_sparse = nx.adjacency_matrix(G)
-    return adjacency_matrix_sparse.toarray()
+    adjacency = adjacency_matrix_sparse.toarray()
+    if power is not None:
+        # Change all leaf nodes to self-loops
+        row_sums = np.sum(adjacency, axis=1)
+        for i in range(len(row_sums)):
+            if row_sums[i] == 0:
+                adjacency[i, i] = 1
+        # Exponentiate matrix
+        return np.linalg.matrix_power(adjacency, power)
+    else:
+        return adjacency
 
 
 def num_last(arr, char):
