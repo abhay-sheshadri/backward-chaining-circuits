@@ -315,29 +315,8 @@ def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
     plt.ylabel(f"Probability of {correct_token}")
     plt.title(f"Probability of Correct Token at {labels[position]}")
     plt.show()
-
-def logit_lens_correct_probs_result(pred, model, dataset, position, lenses=None):
-    # Get labels and cache
-    labels, cache = get_example_cache(pred, model, dataset)
-    # Get the probability of the correct next token at every layer
-    probs = []
-    correct_token = labels[position+1]
-    correct_token_idx = dataset.tokens2idx[correct_token]
-    for layer in range(1, model.cfg.n_layers+1):
-        if layer < model.cfg.n_layers:
-            act_name = tl_util.get_act_name("normalized", layer, "ln1")
-        else:
-            act_name = "ln_final.hook_normalized"
-        res_stream = cache[act_name][0]
-        if lenses is not None:
-            out_proj = res_stream @ lenses[act_name]
-        else:
-            out_proj = res_stream @ model.W_U
-            out_proj = out_proj.softmax(-1)
-        probs.append( out_proj[position, correct_token_idx].item() )
-    # Plot data
+    # Return result
     return probs
-
 
 
 def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
@@ -372,6 +351,8 @@ def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
     plt.title(f"Probability of Correct Token at {labels[position]}")
     plt.legend()
     plt.show()
+    # Return result
+    return probs
 
 
 def calculate_tuned_lens(model, dataset):
