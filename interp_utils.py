@@ -213,7 +213,7 @@ def aggregate_activations(model, dataset, activation_keys, n_states, n_samples, 
         # Record information
         graphs.append(test_graph)
         for key in activation_keys:
-            agg_cache[key].append(cache[key])
+            agg_cache[key].append(cache[key].cpu())
     return agg_cache, graphs
 
 
