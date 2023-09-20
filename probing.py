@@ -9,7 +9,7 @@ class Probe:
     
     def __init__(
         self,
-        learning_rate_init: float = 4e-3,
+        learning_rate_init: float = 1e-3,
         batch_size: int = 2048,
         max_iter: int = 200,
         verbose: bool = False,
@@ -69,7 +69,7 @@ class Probe:
         )
         # Partition into training and validation set
         dataset = TensorDataset(X, y)
-        train_size = int(len(dataset) * 0.9)
+        train_size = int(len(dataset) * 0.9) # Use 10% of training data to validate
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
@@ -179,6 +179,6 @@ class NonlinearClsProbe(ClsProbe):
         layers = [nn.Linear(input_dim, self.hidden_layer_sizes[0]), nn.ReLU()] 
         if len(self.hidden_layer_sizes) > 1:
             for prev_size, next_size in zip(self.hidden_layer_sizes[:-1], self.hidden_layer_sizes[1:]):
-                layers += [nn.Linear(prev_size, next_size)]
+                layers += [nn.Linear(prev_size, next_size), nn.ReLU()]
         layers += [nn.Linear(self.hidden_layer_sizes[-1], output_dim)]
         self.model = nn.Sequential(*layers)
