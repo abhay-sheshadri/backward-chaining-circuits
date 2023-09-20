@@ -79,11 +79,11 @@ class Probe:
             # Train model on training set
             self.model.train()  # set the model to training mode
             total_loss = 0
-            for X, y in train_loader:
-                X, y = X.to(self.device), y.to(self.device)
+            for bX, by in train_loader:
+                bX, by = bX.to(self.device), by.to(self.device)
                 self.optimizer.zero_grad()
-                pred = self.model(X)
-                loss = self.get_loss(y, pred)
+                pred = self.model(bX)
+                loss = self.get_loss(by, pred)
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
@@ -92,10 +92,10 @@ class Probe:
             self.model.eval()
             val_acc = 0
             with torch.no_grad():
-                for X, y in val_loader:
-                    X, y = X.to(self.device), y.to(self.device)
-                    pred = self.model(X)
-                    val_acc += self.get_acc(y, pred) * X.shape[0]
+                for bX, by in val_loader:
+                    bX, by = bX.to(self.device), by.to(self.device)
+                    pred = self.model(bX)
+                    val_acc += self.get_acc(by, pred) * bX.shape[0]
             val_acc = val_acc / len(val_dataset)
             if self.verbose:
                 print(f"Epoch {epoch} - Training Loss: {total_loss:.4f} - Validation Accuracy: {val_acc:.2f}")
@@ -109,11 +109,11 @@ class Probe:
         acc = 0
         self.model.eval()  # set the model to evaluation mode
         with torch.no_grad():
-            for X in loader:
-                X, y = X.to(self.device), y.to(self.device)
-                pred = model(X)
-                acc += self.get_acc(y, pred) * X.shape[0]
-        return val_acc / len(val_dataset)
+            for bX, by in loader:
+                bX, by = bX.to(self.device), by.to(self.device)
+                pred = self.model(bX)
+                acc += self.get_acc(by, pred) * bX.shape[0]
+        return acc.item() / len(dataset)
 
     def predict(self, X):
         assert self.model is not None, "Model has not been trained"
@@ -124,11 +124,11 @@ class Probe:
         outs = []
         self.model.eval()  # set the model to evaluation mode
         with torch.no_grad():
-            for X in loader:
-                X = X.to(self.device)
-                pred = self.model(X)
+            for bX in loader:
+                bX = bX[0].to(self.device)
+                pred = self.model(bX)
                 outs.append(pred.detach().cpu())
-        return torch.stack(outs)
+        return torch.cat(outs, dim=0)
 
 
 class ClsProbe(Probe):
@@ -152,7 +152,7 @@ class ClsProbe(Probe):
 
     def score(self, X, y):
         assert len(y.shape) == 1, f"y should have 1 dimension, but has {len(y.shape)}"
-        super().score(X, y)
+        return super().score(X, y)
 
     def predict(self, X):
         out = super().predict(X)
