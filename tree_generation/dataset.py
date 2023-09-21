@@ -8,16 +8,22 @@ from . import generate_example, parse_example
 
 
 def generate_dataset_file(n_states, file_name, n_examples):
+    """Generate dataset file if it does not exist
+
+    Args:
+        n_states (int): Number of nodes per tree
+        file_name (str): Name of file to save dataset in
+        n_examples (int): Number of different examples to sample
+    """
     if os.path.exists(file_name):
-        pass
+        print("Loading contents from file...")
     else:
-        path_length_histogram = {x: 0 for x in range(1, n_states+1)}
+        print("Generating file...")
         with open(file_name, "w") as f:
             for seed in range(n_examples):
                 line = generate_example(
                     n_states=n_states,
-                    seed=seed,
-                    path_length_histogram=path_length_histogram
+                    seed=seed
                 )
                 f.write(line+"\n")
 

@@ -72,7 +72,13 @@ def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter 
     return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
 
-def parse_example(example_str, highlight_nodes=[]):
+def parse_example(example_str: str, highlight_nodes: list = []):
+    """Generate a visualization of the example
+
+    Args:
+        example_str (str): Example string
+        highlight_nodes (list, optional): List of nodes to give highlighted borders. Defaults to [].
+    """
     # Extract edgelist
     graph = example_str.split("|")[0]
     graph = graph.split(",")
