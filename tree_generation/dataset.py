@@ -11,11 +11,13 @@ def generate_dataset_file(n_states, file_name, n_examples):
     if os.path.exists(file_name):
         pass
     else:
+        path_length_histogram = {x: 0 for x in range(1, n_states+1)}
         with open(file_name, "w") as f:
             for seed in range(n_examples):
                 line = generate_example(
                     n_states=n_states,
-                    seed=seed
+                    seed=seed,
+                    path_length_histogram=path_length_histogram
                 )
                 f.write(line+"\n")
 
