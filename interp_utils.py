@@ -217,50 +217,6 @@ def aggregate_activations(model, dataset, activation_keys, n_states, n_samples, 
     return agg_cache, graphs
 
 
-def linear_probing(X, y, test=None, rank=None):
-    if rank is not None:
-        # Use pca to reduce the rank of the data
-        pca = PCA(n_components=rank)  # k is the desired number of components
-        X = pca.fit_transform(X)
-    # instantiate the model (using the default parameters)
-    out_logreg = LogisticRegression(multi_class='ovr', solver='liblinear')
-    # fit the model with data
-    out_logreg.fit(X, y)
-    # predict the response for new observations
-    y_pred = out_logreg.predict(X)
-    train_score = score = accuracy_score(y, y_pred)
-    print(f"Train Acc Probe: {train_score*100:2f}%")
-    if test is not None:
-        X_test, y_test = test
-        y_pred = out_logreg.predict(X_test)
-        test_score = accuracy_score(y_test, y_pred)
-        print(f"Test Acc Probe: {test_score*100:2f}%")
-        return train_score, test_score, out_logreg
-    return train_score, out_logreg
-
-
-def nonlinear_probing(X, y, test=None, rank=None):
-    if rank is not None:
-        # Use pca to reduce the rank of the data
-        pca = PCA(n_components=rank)  # k is the desired number of components
-        X = pca.fit_transform(X)
-    # instantiate the model (using the default parameters)
-    out_mlp = MLPClassifier(max_iter=1_000, hidden_layer_sizes=(512,), alpha=1e-3)
-    # fit the model with data
-    out_mlp.fit(X, y)
-    # predict the response for new observations
-    y_pred = out_mlp.predict(X)
-    train_score = score = accuracy_score(y, y_pred)
-    print(f"Train Acc Probe: {train_score*100:2f}%")
-    if test is not None:
-        X_test, y_test = test
-        y_pred = out_mlp.predict(X_test)
-        test_score = accuracy_score(y_test, y_pred)
-        print(f"Test Acc Probe: {test_score*100:2f}%")
-        return train_score, test_score, out_mlp
-    return train_score, out_mlp
-
-
 def logit_lens(pred, model, dataset, lenses=None):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
