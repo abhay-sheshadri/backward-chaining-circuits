@@ -69,9 +69,9 @@ def generate_example(n_states, seed, order="random"):
     rng.shuffle(shuffled_nodes)
     edgelist = [(shuffled_nodes[i], shuffled_nodes[j]) for i, j in edgelist]
     if order == "random":
-      rng.shuffle(edgelist)
+        rng.shuffle(edgelist)
     elif order == "backward":
-      edgelist = edgelist[::-1]
+        edgelist = edgelist[::-1]
     # Sample Shortest path
     start_node = shuffled_nodes[0]
     end_node = sample_random_leaf(edgelist, rng) # We should instead sample random leaf node
@@ -84,14 +84,18 @@ def generate_example(n_states, seed, order="random"):
     return (string + ">".join([str(p) for p in path]))
 
 
-def generate_all_examples(n_states, seed):
+def generate_example_all_leafs(n_states, seed, order="random"):
+    assert order in ["forward", "backward", "random"]
     # Sample random edge list
     rng = np.random.default_rng(seed=seed)
     edgelist = sample_tree_graph(n_states, seed)
     shuffled_nodes = np.arange(n_states)
     rng.shuffle(shuffled_nodes)
     edgelist = [(shuffled_nodes[i], shuffled_nodes[j]) for i, j in edgelist]
-    edgelist = edgelist[::-1]
+    if order == "random":
+        rng.shuffle(edgelist)
+    elif order == "backward":
+        edgelist = edgelist[::-1]
     # Get all starts and ends
     start_node = shuffled_nodes[0]
     source_nodes = set([source for source, target in edgelist])
