@@ -182,3 +182,59 @@ class NonlinearClsProbe(ClsProbe):
                 layers += [nn.Linear(prev_size, next_size), nn.ReLU()]
         layers += [nn.Linear(self.hidden_layer_sizes[-1], output_dim)]
         self.model = nn.Sequential(*layers)
+
+
+class RegressionProbe(Probe):
+    """
+    Multi-label probing
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_loss(self, y, pred):
+        return torch.nn.functional.mse_loss(
+            input=pred,
+            target=y
+        )
+
+    def get_acc(self, y, pred):
+        top_pred = (pred > 0.5) == y
+        return torch.sum(torch.all(top_pred, dim=1)) / pred.shape[0]
+
+    def fit(self, X, y):
+        assert len(y.shape) == 2, f"y should have 2 dimension, but has {len(y.shape)}"
+        super().fit(X, y)
+
+    def score(self, X, y):
+        assert len(y.shape) == 2, f"y should have 2 dimension, but has {len(y.shape)}"
+        return super().score(X, y)
+
+    def predict(self, X):
+        out = super().predict(X)
+        return out
+
+
+class LinearRegressionProbe(RegressionProbe):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def construct_model(self, input_dim, output_dim):
+        self.model = nn.Linear(input_dim, output_dim)
+
+
+class NonlinearRegressionProbe(RegressionProbe):
+
+    def __init__(self, hidden_layer_sizes=(100,), *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hidden_layer_sizes = hidden_layer_sizes
+        assert len(self.hidden_layer_sizes) >= 1, "Not enough layers"
+
+    def construct_model(self, input_dim, output_dim):
+        layers = [nn.Linear(input_dim, self.hidden_layer_sizes[0]), nn.ReLU()] 
+        if len(self.hidden_layer_sizes) > 1:
+            for prev_size, next_size in zip(self.hidden_layer_sizes[:-1], self.hidden_layer_sizes[1:]):
+                layers += [nn.Linear(prev_size, next_size), nn.ReLU()]
+        layers += [nn.Linear(self.hidden_layer_sizes[-1], output_dim)]
+        self.model = nn.Sequential(*layers)

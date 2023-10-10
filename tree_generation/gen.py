@@ -9,13 +9,13 @@ def sample_tree_graph(
     n_states: int,
     path_length: int,
     rng: np.random.Generator,
-    is_binary: bool = False
+    is_binary: bool = True
 ) -> Tuple[nx.DiGraph, int, int]:
     """Generate a random tree with the specified params
 
     Args:
         n_states (int): Number of nodes in tree
-        path_length (int): Lnegth of path
+        path_length (int): Length of path
         rng (np.random.Generator): Random number generator
         is_binary (bool, optional): Whether or not each node can have a 
         max of two children. Defaults to False.
@@ -116,7 +116,7 @@ def shortest_path(
                     copy_path = path.copy()
                     copy_path.append(neighbor)
                     queue.append((neighbor, copy_path, current_distance + 1))
-    return -1  # Path not found, should not be possible since graphs are strongly-connected
+    return -1  # Path not found
 
 
 def generate_example(

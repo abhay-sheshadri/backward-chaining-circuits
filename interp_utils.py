@@ -141,7 +141,6 @@ def attention_knockout_discovery_multiple(model, dataset, multiple_test_graphs):
     return ablated_edges, important_edges
 
 
-
 def logits_to_logit_diff(clean_tokens, corrupted_tokens, logits, comparison_index):
     correct_index = clean_tokens[comparison_index]
     incorrect_index = corrupted_tokens[comparison_index]
@@ -196,16 +195,18 @@ def plot_activations(patching_result, clean_tokens, dataset):
     imshow(patching_result, x=token_labels, xaxis="Position", yaxis="Layer", title="Activation patching")
 
 
-def aggregate_activations(model, dataset, activation_keys, n_states, n_samples, min_path_length=None):
+def aggregate_activations(model, dataset, activation_keys, n_samples, path_length=None, order="backward"):
     # Collect activations for examples
     agg_cache = {ak: [] for ak in activation_keys}
     graphs = []
-    for _ in range(n_samples):
+    for seed in range(n_samples):
         # Sample example
-        test_graph = generate_example(n_states, np.random.randint(200_000, 10_000_000), order="backward")
-        if min_path_length is not None:
-            while len(test_graph.split(":")[1].split(">")) < min_path_length:
-                test_graph = generate_example(n_states, np.random.randint(200_000, 10_000_000), order="backward")
+        test_graph = generate_example(
+            n_states=dataset.n_states,
+            seed=seed + 1_000_000,
+            path_length=path_length,
+            order=order
+        )
         correct = is_model_correct(model, dataset, test_graph)
         if not correct:
             continue
@@ -318,7 +319,6 @@ def calculate_tuned_lens(model, dataset):
         dataset=dataset,
         activation_keys=[tl_util.get_act_name("normalized", block, "ln1") 
                             for block in range(1, model.cfg.n_layers)] + ["ln_final.hook_normalized"],
-        n_states=dataset.n_states,
         n_samples=8192,
     )
     # Create input/output pairs
