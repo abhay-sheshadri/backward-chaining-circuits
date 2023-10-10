@@ -184,11 +184,7 @@ class NonlinearClsProbe(ClsProbe):
         self.model = nn.Sequential(*layers)
 
 
-
 class MultiClsProbe(Probe):
-    """
-    Multi-label probing
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -242,9 +238,6 @@ class NonlinearMultiClsProbe(MultiClsProbe):
 
 
 class RegressionProbe(Probe):
-    """
-    Multi-label probing
-    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
