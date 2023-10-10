@@ -5,32 +5,40 @@ from torch import nn, optim
 from torch.utils.data import TensorDataset, DataLoader, random_split
 
 import torch.nn.functional as F
+import math
 
 
 class SparseAutoencoder(nn.Module):
-    
+    """
+        This class implements a sparse autoencoder as described by Anthropic:
+        (https://transformer-circuits.pub/2023/monosemantic-features/index.html#appendix-autoencoder)
+    """
+
     def __init__(self, input_size, hidden_size):
         super(SparseAutoencoder, self).__init__()
-        self.hidden_size = hidden_size
-        self.input_size = input_size
+        self.input_size = input_size  # input and output dimension
+        self.hidden_size = hidden_size  # autoencoder hidden layer dimension (usually m >= n)
 
-        self.encoder_weight = nn.Parameter(torch.randn(self.hidden_size, input_size))
-        nn.init.orthogonal_(self.encoder_weight)
+        # initialize encoder and decoder weights with Kaiming Uniform initialization
+        self.W_e = nn.Parameter(torch.randn(hidden_size, input_size))
+        self.W_d = nn.Parameter(torch.randn(input_size, hidden_size))
+        nn.init.kaiming_uniform_(self.W_e, a=math.sqrt(5))  # we use a=math.sqrt(5) as this is the standard init for PyTorch's Linear 
+        nn.init.kaiming_uniform_(self.W_d, a=math.sqrt(5))
 
-        #self.decoder_weight = nn.Parameter(torch.randn(self.hidden_size, input_size))
-        #nn.init.orthogonal_(self.decoder_weight)
-
-        self.encoder_bias = nn.Parameter(torch.zeros(self.hidden_size))
-        self.decoder_bias = nn.Parameter(torch.zeros(input_size))
+        # initialize the biases
+        self.b_e = nn.Parameter(torch.randn(hidden_size))
+        self.b_d = nn.Parameter(torch.randn(input_size))
 
     def forward(self, x):
-        normalized_encoder_weight = F.normalize(self.encoder_weight, p=2, dim=1)
-
-        features = F.linear(x, normalized_encoder_weight, self.encoder_bias)
-        features = F.relu(features)
-
-        reconstruction = F.linear(features, normalized_encoder_weight.t(), self.decoder_bias)
-
+        # normalize columns to have unit norm
+        W_e = F.normalize(self.W_e, dim=1, p=2)
+        W_d = F.normalize(self.W_d, dim=1, p=2)
+        # subtract decoder bias ("pre-encoder bias")
+        x_bar = x - self.b_d
+        # Encode into features
+        features = F.relu(torch.matmul(x_bar, W_e.T) + self.b_e)
+        # Reconstruct with decoder
+        reconstruction = torch.matmul(features, W_d.T) + self.b_d
         return features, reconstruction
 
 
@@ -40,9 +48,9 @@ class SparseCoder:
         self,
         num_codes: int,
         l1_coef: float = .00086,
-        learning_rate_init: float = 1e-3,
-        batch_size: int = 2048,
-        max_iter: int = 1_000,
+        learning_rate_init: float = 1e-4,
+        batch_size: int = 8192,
+        max_iter: int = 10_000,
         verbose: bool = False,
         device: str = "cuda",
     ):
@@ -79,6 +87,10 @@ class SparseCoder:
         true_sparsity_loss = torch.norm(features, 0, dim=-1).mean()
         reconstruction_loss = F.mse_loss(reconstruction, data)
         return reconstruction_loss + sparsity_loss
+    
+    def get_recons_loss(self, data, features, reconstruction):
+        reconstruction_loss = F.mse_loss(reconstruction, data)
+        return reconstruction_loss
 
     def fit(self, X):
         X = self.fix_inputs(X)
@@ -115,17 +127,17 @@ class SparseCoder:
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
-            self.scheduler.step()
+            # self.scheduler.step()
             # Evaluate model on validation set
             self.model.eval()
             val_loss = 0
             with torch.no_grad():
                 for bX in val_loader:
-                    bX = bX[0].to(self.device)
+                    bX = bX[0].to(self.device)  
                     features, reconstruction = self.model(bX)
-                    val_loss += self.get_loss(bX, features, reconstruction)
+                    val_loss += self.get_recons_loss(bX, features, reconstruction)
             if self.verbose:
-                print(f"Epoch {epoch} - Training Loss: {total_loss:.4f} - Validation Loss: {val_loss:.4f}")
+                print(f"Epoch {epoch} - Training Total Loss: {total_loss:.4f} - Validation Reconstruction Loss: {val_loss:.4f}")
 
     def featurize(self, X):
         assert self.model is not None, "Model has not been trained"
