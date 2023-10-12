@@ -16,6 +16,7 @@ class SparseAutoencoder(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(SparseAutoencoder, self).__init__()
+        print("this is the Anthropic SAE")
         self.input_size = input_size  # input and output dimension
         self.hidden_size = hidden_size  # autoencoder hidden layer dimension (usually m >= n)
 
@@ -86,13 +87,17 @@ class SparseCoder:
         sparsity_loss = self.l1_coef * torch.norm(features, 1, dim=-1).mean()
         true_sparsity_loss = torch.norm(features, 0, dim=-1).mean()
         reconstruction_loss = F.mse_loss(reconstruction, data)
-        return reconstruction_loss + sparsity_loss
+        return reconstruction_loss, sparsity_loss
     
     def get_recons_loss(self, data, features, reconstruction):
         reconstruction_loss = F.mse_loss(reconstruction, data)
         return reconstruction_loss
 
     def fit(self, X):
+
+        def avg(lst): 
+            return sum(lst) / len(lst) 
+
         X = self.fix_inputs(X)
         assert len(X.shape) == 2, f"X should have 2 dimensions, but has {len(X.shape)}"
         # Create model
@@ -119,14 +124,23 @@ class SparseCoder:
             # Train model on training set
             self.model.train()  # set the model to training mode
             total_loss = 0
+
+            sparsities = []
+            reconstruction_losses = []
+            sparsity_losses = []
             for bX in train_loader:
                 bX = bX[0].to(self.device)
                 self.optimizer.zero_grad()
                 features, reconstruction = self.model(bX)
-                loss = self.get_loss(bX, features, reconstruction)
+                reconstruction_loss, sparsity_loss = self.get_loss(bX, features, reconstruction)
+                loss = reconstruction_loss + sparsity_loss
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
+
+                sparsities.append((features != 0).float().mean(dim=0).sum().cpu().item())
+                reconstruction_losses.append(reconstruction_loss)
+                sparsity_losses.append(sparsity_loss)
             # self.scheduler.step()
             # Evaluate model on validation set
             self.model.eval()
@@ -136,8 +150,8 @@ class SparseCoder:
                     bX = bX[0].to(self.device)  
                     features, reconstruction = self.model(bX)
                     val_loss += self.get_recons_loss(bX, features, reconstruction)
-            if self.verbose:
-                print(f"Epoch {epoch} - Training Total Loss: {total_loss:.4f} - Validation Reconstruction Loss: {val_loss:.4f}")
+            if self.verbose and epoch % 20 == 0:
+                print(f"Epoch {epoch} | Sparsity: {avg(sparsities):.4f} | Training Loss: {total_loss:.4f} | Validation Loss: {val_loss:.4f} | Reconstruction Loss: {avg(reconstruction_losses):.4f} | Sparsity Loss: {avg(sparsity_losses):.4f}")
 
     def featurize(self, X):
         assert self.model is not None, "Model has not been trained"
