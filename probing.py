@@ -161,11 +161,12 @@ class ClsProbe(Probe):
 
 class LinearClsProbe(ClsProbe):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, fit_intercept: bool = True,  *args, **kwargs):
         super().__init__(*args, **kwargs)
-
+        self.fit_intercept = fit_intercept
+        
     def construct_model(self, input_dim, output_dim):
-        self.model = nn.Linear(input_dim, output_dim)
+        self.model = nn.Linear(input_dim, output_dim, bias=self.fit_intercept)
 
 
 class NonlinearClsProbe(ClsProbe):
@@ -209,16 +210,17 @@ class MultiClsProbe(Probe):
 
     def predict(self, X):
         out = super().predict(X)
-        return out
+        return out.sigmoid()
 
 
 class LinearMultiClsProbe(MultiClsProbe):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, fit_intercept: bool = True,  *args, **kwargs):
         super().__init__(*args, **kwargs)
-
+        self.fit_intercept = fit_intercept
+        
     def construct_model(self, input_dim, output_dim):
-        self.model = nn.Linear(input_dim, output_dim)
+        self.model = nn.Linear(input_dim, output_dim, bias=self.fit_intercept)
 
 
 class NonlinearMultiClsProbe(MultiClsProbe):
@@ -267,11 +269,12 @@ class RegressionProbe(Probe):
 
 class LinearRegressionProbe(RegressionProbe):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, fit_intercept: bool = True,  *args, **kwargs):
         super().__init__(*args, **kwargs)
-
+        self.fit_intercept = fit_intercept
+        
     def construct_model(self, input_dim, output_dim):
-        self.model = nn.Linear(input_dim, output_dim)
+        self.model = nn.Linear(input_dim, output_dim, bias=self.fit_intercept)
 
 
 class NonlinearRegressionProbe(RegressionProbe):
