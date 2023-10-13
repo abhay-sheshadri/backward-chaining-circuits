@@ -85,7 +85,6 @@ class SparseCoder:
 
     def get_loss(self, data, features, reconstruction):
         sparsity_loss = self.l1_coef * torch.norm(features, 1, dim=-1).mean()
-        true_sparsity_loss = torch.norm(features, 0, dim=-1).mean()
         reconstruction_loss = F.mse_loss(reconstruction, data)
         return reconstruction_loss, sparsity_loss
     
