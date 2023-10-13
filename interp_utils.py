@@ -16,6 +16,7 @@ from sklearn.metrics import f1_score, accuracy_score
 
 from tree_generation import generate_example
 from utils import *
+from probing import *
 
 
 def display_head(cache, labels, layer, head, show=True):
@@ -264,7 +265,7 @@ def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
             out_proj = res_stream @ lenses[act_name]
         else:
             out_proj = res_stream @ model.W_U
-            out_proj = out_proj.softmax(-1)
+        out_proj = out_proj.softmax(-1)
         probs.append( out_proj[position, correct_token_idx].item() )
     # Plot data
     plt.plot(probs)
@@ -296,7 +297,7 @@ def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
             out_proj = res_stream @ lenses[act_name]
         else:
             out_proj = res_stream @ model.W_U
-            out_proj = out_proj.softmax(-1)
+        out_proj = out_proj.softmax(-1)
         for key in probs:
             key_prob = out_proj[position, dataset.tokens2idx[key]].item()
             probs[key].append(key_prob)
@@ -330,7 +331,7 @@ def calculate_tuned_lens(model, dataset):
         start_idx = np.where(tokens == dataset.start_token)[0].item() + 2
         labels = [dataset.idx2tokens[idx] for idx in tokens]
         end_idx = num_last(labels, ",") + 1
-        y.append(tokens[start_idx:end_idx]) 
+        y.append(tokens[start_idx:end_idx])
         # Iterate over all layers residual streams
         for key in X.keys():
             streams = acts[key][gidx][0, start_idx-1:end_idx-1]
@@ -338,14 +339,14 @@ def calculate_tuned_lens(model, dataset):
     # Convert everything to np arrays
     for key in X.keys():
         X[key] = torch.cat(X[key], dim=0).detach().cpu().numpy()
-    y = np.concatenate(y, axis=0)
-    y = np.eye(len(dataset.idx2tokens))[y]
+    y = np.concatenate(y, axis=0).astype(np.int64)
     # Calculate a lens for every layer
     translators = {}
     for key in X.keys():
-        tprobe = LinearRegression(fit_intercept=False)
+        tprobe = LinearClsProbe(fit_intercept=False)
         tprobe.fit(X[key], y)
         print(tprobe.score(X[key], y))
-        translators[key] = torch.from_numpy(
-            np.transpose(tprobe.coef_)).to(model.cfg.device)
+        W = tprobe.model.weight.data
+        W = W.T
+        translators[key] = W.to(model.cfg.device)
     return translators
