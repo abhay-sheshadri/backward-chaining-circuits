@@ -197,6 +197,7 @@ class MultiClsProbe(Probe):
         )
 
     def get_acc(self, y, pred):
+        pred = pred.sigmoid()
         top_pred = (pred > 0.5) == y
         return torch.sum(top_pred) / (pred.shape[0] * pred.shape[1])
 

@@ -16,7 +16,6 @@ class SparseAutoencoder(nn.Module):
 
     def __init__(self, input_size, hidden_size):
         super(SparseAutoencoder, self).__init__()
-        print("this is the Anthropic SAE")
         self.input_size = input_size  # input and output dimension
         self.hidden_size = hidden_size  # autoencoder hidden layer dimension (usually m >= n)
 
@@ -31,14 +30,12 @@ class SparseAutoencoder(nn.Module):
         self.b_d = nn.Parameter(torch.randn(input_size))
 
     def forward(self, x):
-        # normalize columns to have unit norm
-        W_e = F.normalize(self.W_e, dim=1, p=2)
-        W_d = F.normalize(self.W_d, dim=1, p=2)
-        # subtract decoder bias ("pre-encoder bias")
+        # Subtract decoder bias ("pre-encoder bias")
         x_bar = x - self.b_d
         # Encode into features
-        features = F.relu(torch.matmul(x_bar, W_e.T) + self.b_e)
+        features = F.relu(torch.matmul(x_bar, self.W_e.T) + self.b_e)
         # Reconstruct with decoder
+        W_d = F.normalize(self.W_d, dim=1, p=2)
         reconstruction = torch.matmul(features, W_d.T) + self.b_d
         return features, reconstruction
 
@@ -50,8 +47,8 @@ class SparseCoder:
         num_codes: int,
         l1_coef: float = .00086,
         learning_rate_init: float = 1e-4,
-        batch_size: int = 8192,
-        max_iter: int = 10_000,
+        batch_size: int = 2048,
+        max_iter: int = 1_000,
         verbose: bool = False,
         device: str = "cuda",
     ):
@@ -85,7 +82,6 @@ class SparseCoder:
 
     def get_loss(self, data, features, reconstruction):
         sparsity_loss = self.l1_coef * torch.norm(features, 1, dim=-1).mean()
-        true_sparsity_loss = torch.norm(features, 0, dim=-1).mean()
         reconstruction_loss = F.mse_loss(reconstruction, data)
         return reconstruction_loss, sparsity_loss
     
