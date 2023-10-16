@@ -75,7 +75,7 @@ class Probe:
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size,)
         # Start training and logging
-        for epoch in range(self.max_iter):
+        for epoch in range(1, self.max_iter + 1):
             # Train model on training set
             self.model.train()  # set the model to training mode
             total_loss = 0
@@ -97,7 +97,7 @@ class Probe:
                     pred = self.model(bX)
                     val_acc += self.get_acc(by, pred) * bX.shape[0]
             val_acc = val_acc / len(val_dataset)
-            if self.verbose:
+            if self.verbose and epoch % 50 == 0:
                 print(f"Epoch {epoch} - Training Loss: {total_loss:.4f} - Validation Accuracy: {val_acc:.2f}")
 
     def score(self, X, y):
@@ -193,7 +193,8 @@ class MultiClsProbe(Probe):
     def get_loss(self, y, pred):
         return torch.nn.functional.binary_cross_entropy_with_logits(
             input=pred,
-            target=y
+            target=y,
+            pos_weight=torch.tensor([2.5]).to('cuda')
         )
 
     def get_acc(self, y, pred):
