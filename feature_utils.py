@@ -14,9 +14,10 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from collections import defaultdict
 from einops import rearrange
+from PIL import Image
 
 
-def return_probing_dataset(acts, graphs):
+def return_probing_dataset(acts, graphs, dataset):
     X = {key: [] for key in acts.keys()}
     y = []
     for gidx, graph in enumerate(graphs):
@@ -40,6 +41,7 @@ def return_probing_dataset(acts, graphs):
     y = np.array(y)
     return X, y
 
+
 def get_dictionary_activations(model, dataset, cache_name, autoencoder, max_seq_length, batch_size=32, device='cuda'):
     num_features, d_model = autoencoder.model.W_e.shape
     datapoints = len(dataset)
@@ -55,7 +57,6 @@ def get_dictionary_activations(model, dataset, cache_name, autoencoder, max_seq_
             batched_dictionary_activations, _ = autoencoder.model(batched_neuron_activations.cuda())
             dictionary_activations[i*batch_size*max_seq_length:(i+1)*batch_size*max_seq_length,:] = batched_dictionary_activations.cpu()
     return dictionary_activations, token_list
-
 
 
 def get_feature_indices(feature_index, dictionary_activations, k=10, setting="max"):
@@ -100,6 +101,7 @@ def get_feature_indices(feature_index, dictionary_activations, k=10, setting="ma
         found_indices = shuffled_indices[:k]
     return found_indices
 
+
 def get_feature_datapoints(found_indices, best_feature_activations, max_seq_length, dataset):
     num_datapoints = len(dataset)
     datapoint_indices =[np.unravel_index(i, (num_datapoints, max_seq_length)) for i in found_indices]
@@ -126,3 +128,97 @@ def get_feature_datapoints(found_indices, best_feature_activations, max_seq_leng
             token_list.append(tok)
             full_token_list.append(full_tok)
     return text_list, full_text, token_list, full_token_list, partial_activations, full_activations, local_activations
+
+
+def fixed_plot(strings):
+    G = nx.Graph()
+    for s in strings:
+        nodes = s.split('-')
+        G.add_edge(nodes[0], nodes[1])
+    nx.draw(G, with_labels=True)
+    plt.axis('off')
+
+
+def save_plots_as_images(strings_list, filenames):
+    for idx, strings in enumerate(strings_list):
+        parse_example(strings)
+        plt.savefig(filenames[idx])
+        plt.close()
+
+
+def concat_images_vertically(filenames):
+    images = [Image.open(filename) for filename in filenames]
+    total_width = max(im.width for im in images)
+    total_height = sum(im.height for im in images)
+    new_image = Image.new('RGB', (total_width, total_height))
+    
+    y_offset = 0
+    for im in images:
+        new_image.paste(im, (0, y_offset))
+        y_offset += im.height
+    return new_image
+
+
+def save_feature_plots(dictionary_activations, feature, num_feature_datapoints=1000, save_path="./features"): 
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    uniform_indices = get_feature_indices(feature, dictionary_activations, k=num_feature_datapoints, setting="uniform")
+    text_list, full_text, token_list, full_token_list, partial_activations, full_activations, local_activations = get_feature_datapoints(uniform_indices, dictionary_activations[:, feature], max_seq_length, dataset)
+
+    if len(text_list) > 0:
+        
+        # sample the 20 most interesting ones
+        if len(text_list) > 20:
+            merged = [list(a) for a in zip(full_text, local_activations)]
+            def sort(sub_li):
+                sub_li.sort(key = lambda x: x[1])
+                return sub_li
+            merged_sorted = sort(merged)
+            subset = merged_sorted[-20:]
+            full_text = [s[0] for s in subset]
+
+        # generate plots    
+        filenames = [f"temp_plot_{i}.png" for i in range(len(full_text))]    
+        save_plots_as_images(full_text, filenames)
+        concatenated_image = concat_images_vertically(filenames)
+
+        # Save concatenated image as a PDF
+        concatenated_image.save(os.path.join(save_path, f'feature_{feature}.pdf'), "PDF", resolution=100.0)
+
+        # delete temp images
+        for filename in filenames:
+            import os
+            os.remove(filename)
+
+    else: 
+
+        print(f"No examples for feature {feature} found.")
+
+
+def plot_feature(dictionary_activations, feature, num_feature_datapoints=1000): 
+
+    uniform_indices = get_feature_indices(feature, dictionary_activations, k=num_feature_datapoints, setting="uniform")
+    text_list, full_text, token_list, full_token_list, partial_activations, full_activations, local_activations = get_feature_datapoints(uniform_indices, dictionary_activations[:, feature], max_seq_length, dataset)
+
+    if len(text_list) > 0:
+        
+        # sample the 20 most interesting ones
+        if len(text_list) > 20:
+            merged = [list(a) for a in zip(full_text, local_activations)]
+            def sort(sub_li):
+                sub_li.sort(key = lambda x: x[1])
+                return sub_li
+            merged_sorted = sort(merged)
+            subset = merged_sorted[-20:]
+            full_text = [s[0] for s in subset]
+
+        for graph in text_list:
+            print(graph)
+            parse_example(graph)
+            plt.show()
+
+    else: 
+
+        print(f"No examples for feature {feature} found.")
