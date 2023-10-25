@@ -178,3 +178,9 @@ class SparseCoder:
                 features, reconstruction = self.model(bX)
                 outs.append(reconstruction.detach().cpu())
         return torch.cat(outs, dim=0)
+
+    def save(self, filename):
+        torch.save(self.model, filename)
+        
+    def load(self, filename):
+        self.model = torch.load(filename)

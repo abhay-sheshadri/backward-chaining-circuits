@@ -207,8 +207,12 @@ def num_last(arr, char):
     return fidx + 1
 
 
-def eval_model(model, dataset, test_graph):
+def eval_model(model, dataset, test_graph, add_hooks_fn=None):
+    # Prepare model
     model.eval()
+    model.reset_hooks()
+    if add_hooks_fn is not None:
+        add_hooks_fn(model)
     
     # Initialize counters
     test_graph_tokens = dataset.tokenize(test_graph)

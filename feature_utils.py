@@ -59,6 +59,24 @@ def get_dictionary_activations(model, dataset, cache_name, autoencoder, max_seq_
     return dictionary_activations, token_list
 
 
+def get_dictionary_activations_at_pos(model, dataset, cache_name, autoencoder, batch_size=32, device='cuda'):
+    num_features, d_model = autoencoder.model.W_e.shape
+    datapoints = len(dataset)
+    dictionary_activations = torch.zeros((datapoints, num_features))
+    with torch.no_grad():
+        dl = DataLoader(dataset, batch_size=batch_size)
+        for i, batch in enumerate(tqdm(dl)):
+            batch = batch[0][:, :-1].to(device)
+            _, cache = model.run_with_cache(batch.to(device))
+            if len(cache[cache_name].shape) == 3:
+                batched_neuron_activations = cache[cache_name][:, 47, :]
+            if len(cache[cache_name].shape) == 4: # For activations in attn
+                batched_neuron_activations = cache[cache_name][:, 47, 0, :]
+            batched_dictionary_activations, _ = autoencoder.model(batched_neuron_activations.cuda())
+            dictionary_activations[i*batch_size:(i+1)*batch_size, :] = batched_dictionary_activations.cpu()
+    return dictionary_activations
+
+
 def get_feature_indices(feature_index, dictionary_activations, k=10, setting="max"):
     best_feature_activations = dictionary_activations[:, feature_index]
     # Sort the features by activation, get the indices
@@ -104,7 +122,7 @@ def get_feature_indices(feature_index, dictionary_activations, k=10, setting="ma
 
 def get_feature_datapoints(found_indices, best_feature_activations, max_seq_length, dataset):
     num_datapoints = len(dataset)
-    datapoint_indices =[np.unravel_index(i, (num_datapoints, max_seq_length)) for i in found_indices]
+    datapoint_indices = [np.unravel_index(i, (num_datapoints, max_seq_length)) for i in found_indices]
     all_activations = best_feature_activations.reshape(num_datapoints, max_seq_length).tolist()
     full_activations = []
     partial_activations = []
@@ -114,19 +132,18 @@ def get_feature_datapoints(found_indices, best_feature_activations, max_seq_leng
     local_activations = []
     full_token_list = []
     for i, (md, s_ind) in enumerate(datapoint_indices):
-        if s_ind == 47:
-            md = int(md)
-            s_ind = int(s_ind)
-            full_tok = torch.tensor(dataset[md][0])
-            full_text.append(dataset.untokenize(full_tok))
-            tok = dataset[md][0][:s_ind+1]
-            full_activations.append(all_activations[md])
-            partial_activations.append(all_activations[md][:s_ind+1])
-            local_activations.append(all_activations[md][s_ind])
-            text = dataset.untokenize(tok)
-            text_list.append(text)
-            token_list.append(tok)
-            full_token_list.append(full_tok)
+        md = int(md)
+        s_ind = int(s_ind)
+        full_tok = torch.tensor(dataset[md][0])
+        full_text.append(dataset.untokenize(full_tok))
+        tok = dataset[md][0][:s_ind+1]
+        full_activations.append(all_activations[md])
+        partial_activations.append(all_activations[md][:s_ind+1])
+        local_activations.append(all_activations[md][s_ind])
+        text = dataset.untokenize(tok)
+        text_list.append(text)
+        token_list.append(tok)
+        full_token_list.append(full_tok)
     return text_list, full_text, token_list, full_token_list, partial_activations, full_activations, local_activations
 
 
