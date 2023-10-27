@@ -204,7 +204,7 @@ def aggregate_activations(model, dataset, activation_keys, n_samples, path_lengt
         # Sample example
         test_graph = generate_example(
             n_states=dataset.n_states,
-            seed=seed + 1_000_000,
+            seed=np.random.randint(1_000_000, np.iinfo(32).max),
             path_length=path_length,
             order=order
         )
