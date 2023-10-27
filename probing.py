@@ -102,12 +102,12 @@ class Probe:
                     val_acc += self.get_acc(by, pred) * bX.shape[0]
 
                     pred_binary = (pred > 0.5).type_as(by)
-                    val_prec = precision_score(by.cpu().numpy(), pred_binary.cpu().numpy(), average='samples') * bX.shape[0]
-                    val_rec = recall_score(by.cpu().numpy(), pred_binary.cpu().numpy(), average='samples') * bX.shape[0]
+                    val_prec += precision_score(by.cpu().flatten(), pred_binary.cpu().flatten()) * bX.shape[0]
+                    val_rec += recall_score(by.cpu().flatten(), pred_binary.cpu().flatten()) * bX.shape[0]
             val_acc = val_acc / len(val_dataset)
             val_prec = val_prec / len(val_dataset)
             val_rec = val_rec / len(val_dataset)
-            if self.verbose and epoch % 20 == 0:
+            if self.verbose and epoch % 20 == 0 or self.verbose and epoch == 0:
                 print(f"Epoch {epoch} - Training Loss: {total_loss:.4f} - Val. Acc.: {val_acc:.2f} - Val. Prec.: {val_prec:.2f} - Val. Rec.: {val_rec:.2f} ")
 
     def score(self, X, y):
@@ -204,7 +204,7 @@ class MultiClsProbe(Probe):
         return torch.nn.functional.binary_cross_entropy_with_logits(
             input=pred,
             target=y,
-            pos_weight=torch.tensor([2.5]).to('cuda')
+            #pos_weight=torch.tensor([2.5]).to('cuda')
         )
 
     def get_acc(self, y, pred):
