@@ -4,7 +4,7 @@ import torch
 from torch import nn, optim
 from torch.utils.data import TensorDataset, DataLoader, random_split
 
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 
 
 class Probe:

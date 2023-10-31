@@ -35,9 +35,15 @@ class SparseAutoencoder(nn.Module):
         # Encode into features
         features = F.relu(torch.matmul(x_bar, self.W_e.T) + self.b_e)
         # Reconstruct with decoder
-        W_d = F.normalize(self.W_d, dim=1, p=2)
+        W_d = F.normalize(self.W_d, dim=0, p=2)
         reconstruction = torch.matmul(features, W_d.T) + self.b_d
         return features, reconstruction
+    
+    def reconstruct_from_features(self, features):
+        # Reconstruct with decoder
+        W_d = F.normalize(self.W_d, dim=0, p=2)
+        reconstruction = torch.matmul(features, W_d.T) + self.b_d
+        return reconstruction
 
 
 class SparseCoder:

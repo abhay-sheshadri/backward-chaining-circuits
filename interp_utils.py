@@ -200,7 +200,7 @@ def aggregate_activations(model, dataset, activation_keys, n_samples, path_lengt
     # Collect activations for examples
     agg_cache = {ak: [] for ak in activation_keys}
     graphs = []
-    for seed in range(n_samples):
+    for _ in range(n_samples):
         # Sample example
         test_graph = generate_example(
             n_states=dataset.n_states,
