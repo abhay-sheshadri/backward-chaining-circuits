@@ -4,7 +4,8 @@ import torch
 from torch import nn, optim
 from torch.utils.data import TensorDataset, DataLoader, random_split
 
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+
 
 class Probe:
     
@@ -94,19 +95,21 @@ class Probe:
             val_acc = 0
             val_prec = 0
             val_rec = 0
-            
+
             with torch.no_grad():
                 for bX, by in val_loader:
                     bX, by = bX.to(self.device), by.to(self.device)
                     pred = self.model(bX)
-                    val_acc += self.get_acc(by, pred) * bX.shape[0]
+                    assert pred.shape == by.shape
+                    v_acc, v_prec, v_rec = self.get_acc(by, pred)
+                    val_acc += v_acc * bX.shape[0]
+                    val_prec += v_prec * bX.shape[0]
+                    val_rec += v_rec * bX.shape[0]
 
-                    pred_binary = (pred > 0.5).type_as(by)
-                    val_prec += precision_score(by.cpu().flatten(), pred_binary.cpu().flatten()) * bX.shape[0]
-                    val_rec += recall_score(by.cpu().flatten(), pred_binary.cpu().flatten()) * bX.shape[0]
             val_acc = val_acc / len(val_dataset)
             val_prec = val_prec / len(val_dataset)
             val_rec = val_rec / len(val_dataset)
+
             if self.verbose and epoch % 20 == 0 or self.verbose and epoch == 0:
                 print(f"Epoch {epoch} - Training Loss: {total_loss:.4f} - Val. Acc.: {val_acc:.2f} - Val. Prec.: {val_prec:.2f} - Val. Rec.: {val_rec:.2f} ")
 
@@ -122,7 +125,7 @@ class Probe:
             for bX, by in loader:
                 bX, by = bX.to(self.device), by.to(self.device)
                 pred = self.model(bX)
-                acc += self.get_acc(by, pred) * bX.shape[0]
+                acc += self.get_acc(by, pred)[0] * bX.shape[0]
         return acc.item() / len(dataset)
 
     def predict(self, X):
@@ -153,8 +156,12 @@ class ClsProbe(Probe):
         )
 
     def get_acc(self, y, pred):
-        top_pred = pred.argmax(-1)
-        return torch.sum(y == top_pred) / pred.shape[0]
+        y_pred = pred.argmax(-1).detach().cpu().numpy()
+        y_true = y.detach().cpu().numpy()
+        accuracy = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred)
+        recall = recall_score(y_true, y_pred)
+        return accuracy, precision, recall
 
     def fit(self, X, y):
         assert len(y.shape) == 1, f"y should have 1 dimension, but has {len(y.shape)}"
@@ -166,7 +173,7 @@ class ClsProbe(Probe):
 
     def predict(self, X):
         out = super().predict(X)
-        return out.argmax(-1)
+        return out.softmax(dim=-1)
 
 
 class LinearClsProbe(ClsProbe):
@@ -204,13 +211,16 @@ class MultiClsProbe(Probe):
         return torch.nn.functional.binary_cross_entropy_with_logits(
             input=pred,
             target=y,
-            #pos_weight=torch.tensor([2.5]).to('cuda')
+            pos_weight=torch.tensor([1.5]).to('cuda')
         )
 
     def get_acc(self, y, pred):
-        pred = pred.sigmoid()
-        top_pred = (pred > 0.5) == y
-        return torch.sum(top_pred) / (pred.shape[0] * pred.shape[1])
+        y_pred = (pred.sigmoid() > 0.5).flatten().detach().cpu().numpy()
+        y_true = y.flatten().detach().cpu().numpy()
+        accuracy = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred)
+        recall = recall_score(y_true, y_pred)
+        return accuracy, precision, recall
 
     def fit(self, X, y):
         assert len(y.shape) == 2, f"y should have 2 dimension, but has {len(y.shape)}"
@@ -230,66 +240,12 @@ class LinearMultiClsProbe(MultiClsProbe):
     def __init__(self, fit_intercept: bool = True,  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fit_intercept = fit_intercept
-        
+
     def construct_model(self, input_dim, output_dim):
         self.model = nn.Linear(input_dim, output_dim, bias=self.fit_intercept)
 
 
 class NonlinearMultiClsProbe(MultiClsProbe):
-
-    def __init__(self, hidden_layer_sizes=(2048,), *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.hidden_layer_sizes = hidden_layer_sizes
-        assert len(self.hidden_layer_sizes) >= 1, "Not enough layers"
-
-    def construct_model(self, input_dim, output_dim):
-        layers = [nn.Linear(input_dim, self.hidden_layer_sizes[0]), nn.ReLU()] 
-        if len(self.hidden_layer_sizes) > 1:
-            for prev_size, next_size in zip(self.hidden_layer_sizes[:-1], self.hidden_layer_sizes[1:]):
-                layers += [nn.Linear(prev_size, next_size), nn.ReLU()]
-        layers += [nn.Linear(self.hidden_layer_sizes[-1], output_dim)]
-        self.model = nn.Sequential(*layers)
-
-
-class RegressionProbe(Probe):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def get_loss(self, y, pred):
-        return torch.nn.functional.mse_loss(
-            input=pred,
-            target=y
-        )
-
-    def get_acc(self, y, pred):
-        top_pred = (pred > 0.5) == y
-        return torch.sum(top_pred) / (pred.shape[0] * pred.shape[1])
-
-    def fit(self, X, y):
-        assert len(y.shape) == 2, f"y should have 2 dimension, but has {len(y.shape)}"
-        super().fit(X, y)
-
-    def score(self, X, y):
-        assert len(y.shape) == 2, f"y should have 2 dimension, but has {len(y.shape)}"
-        return super().score(X, y)
-
-    def predict(self, X):
-        out = super().predict(X)
-        return out
-
-
-class LinearRegressionProbe(RegressionProbe):
-
-    def __init__(self, fit_intercept: bool = True,  *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fit_intercept = fit_intercept
-        
-    def construct_model(self, input_dim, output_dim):
-        self.model = nn.Linear(input_dim, output_dim, bias=self.fit_intercept)
-
-
-class NonlinearRegressionProbe(RegressionProbe):
 
     def __init__(self, hidden_layer_sizes=(2048,), *args, **kwargs):
         super().__init__(*args, **kwargs)
