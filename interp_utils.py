@@ -16,6 +16,7 @@ from sklearn.metrics import f1_score, accuracy_score
 
 from tree_generation import generate_example
 from utils import *
+from probing import *
 
 
 def display_head(cache, labels, layer, head, show=True):
@@ -141,7 +142,6 @@ def attention_knockout_discovery_multiple(model, dataset, multiple_test_graphs):
     return ablated_edges, important_edges
 
 
-
 def logits_to_logit_diff(clean_tokens, corrupted_tokens, logits, comparison_index):
     correct_index = clean_tokens[comparison_index]
     incorrect_index = corrupted_tokens[comparison_index]
@@ -196,16 +196,18 @@ def plot_activations(patching_result, clean_tokens, dataset):
     imshow(patching_result, x=token_labels, xaxis="Position", yaxis="Layer", title="Activation patching")
 
 
-def aggregate_activations(model, dataset, activation_keys, n_states, n_samples, min_path_length=None):
+def aggregate_activations(model, dataset, activation_keys, n_samples, path_length=None, order="backward"):
     # Collect activations for examples
     agg_cache = {ak: [] for ak in activation_keys}
     graphs = []
     for _ in range(n_samples):
         # Sample example
-        test_graph = generate_example(n_states, np.random.randint(200_000, 10_000_000), order="backward")
-        if min_path_length is not None:
-            while len(test_graph.split(":")[1].split(">")) < min_path_length:
-                test_graph = generate_example(n_states, np.random.randint(200_000, 10_000_000), order="backward")
+        test_graph = generate_example(
+            n_states=dataset.n_states,
+            seed=np.random.randint(1_000_000, np.iinfo(32).max),
+            path_length=path_length,
+            order=order
+        )
         correct = is_model_correct(model, dataset, test_graph)
         if not correct:
             continue
@@ -213,52 +215,8 @@ def aggregate_activations(model, dataset, activation_keys, n_states, n_samples, 
         # Record information
         graphs.append(test_graph)
         for key in activation_keys:
-            agg_cache[key].append(cache[key])
+            agg_cache[key].append(cache[key].cpu())
     return agg_cache, graphs
-
-
-def linear_probing(X, y, test=None, rank=None):
-    if rank is not None:
-        # Use pca to reduce the rank of the data
-        pca = PCA(n_components=rank)  # k is the desired number of components
-        X = pca.fit_transform(X)
-    # instantiate the model (using the default parameters)
-    out_logreg = LogisticRegression(multi_class='ovr', solver='liblinear')
-    # fit the model with data
-    out_logreg.fit(X, y)
-    # predict the response for new observations
-    y_pred = out_logreg.predict(X)
-    train_score = score = accuracy_score(y, y_pred)
-    print(f"Train Acc Probe: {train_score*100:2f}%")
-    if test is not None:
-        X_test, y_test = test
-        y_pred = out_logreg.predict(X_test)
-        test_score = accuracy_score(y_test, y_pred)
-        print(f"Test Acc Probe: {test_score*100:2f}%")
-        return train_score, test_score, out_logreg
-    return train_score, out_logreg
-
-
-def nonlinear_probing(X, y, test=None, rank=None):
-    if rank is not None:
-        # Use pca to reduce the rank of the data
-        pca = PCA(n_components=rank)  # k is the desired number of components
-        X = pca.fit_transform(X)
-    # instantiate the model (using the default parameters)
-    out_mlp = MLPClassifier(max_iter=1_000, hidden_layer_sizes=(512,), alpha=1e-3)
-    # fit the model with data
-    out_mlp.fit(X, y)
-    # predict the response for new observations
-    y_pred = out_mlp.predict(X)
-    train_score = score = accuracy_score(y, y_pred)
-    print(f"Train Acc Probe: {train_score*100:2f}%")
-    if test is not None:
-        X_test, y_test = test
-        y_pred = out_mlp.predict(X_test)
-        test_score = accuracy_score(y_test, y_pred)
-        print(f"Test Acc Probe: {test_score*100:2f}%")
-        return train_score, test_score, out_mlp
-    return train_score, out_mlp
 
 
 def logit_lens(pred, model, dataset, lenses=None):
@@ -307,7 +265,7 @@ def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
             out_proj = res_stream @ lenses[act_name]
         else:
             out_proj = res_stream @ model.W_U
-            out_proj = out_proj.softmax(-1)
+        out_proj = out_proj.softmax(-1)
         probs.append( out_proj[position, correct_token_idx].item() )
     # Plot data
     plt.plot(probs)
@@ -339,7 +297,7 @@ def logit_lens_all_probs(pred, model, dataset, position, lenses=None):
             out_proj = res_stream @ lenses[act_name]
         else:
             out_proj = res_stream @ model.W_U
-            out_proj = out_proj.softmax(-1)
+        out_proj = out_proj.softmax(-1)
         for key in probs:
             key_prob = out_proj[position, dataset.tokens2idx[key]].item()
             probs[key].append(key_prob)
@@ -362,7 +320,6 @@ def calculate_tuned_lens(model, dataset):
         dataset=dataset,
         activation_keys=[tl_util.get_act_name("normalized", block, "ln1") 
                             for block in range(1, model.cfg.n_layers)] + ["ln_final.hook_normalized"],
-        n_states=dataset.n_states,
         n_samples=8192,
     )
     # Create input/output pairs
@@ -374,7 +331,7 @@ def calculate_tuned_lens(model, dataset):
         start_idx = np.where(tokens == dataset.start_token)[0].item() + 2
         labels = [dataset.idx2tokens[idx] for idx in tokens]
         end_idx = num_last(labels, ",") + 1
-        y.append(tokens[start_idx:end_idx]) 
+        y.append(tokens[start_idx:end_idx])
         # Iterate over all layers residual streams
         for key in X.keys():
             streams = acts[key][gidx][0, start_idx-1:end_idx-1]
@@ -382,14 +339,14 @@ def calculate_tuned_lens(model, dataset):
     # Convert everything to np arrays
     for key in X.keys():
         X[key] = torch.cat(X[key], dim=0).detach().cpu().numpy()
-    y = np.concatenate(y, axis=0)
-    y = np.eye(len(dataset.idx2tokens))[y]
+    y = np.concatenate(y, axis=0).astype(np.int64)
     # Calculate a lens for every layer
     translators = {}
     for key in X.keys():
-        tprobe = LinearRegression(fit_intercept=False)
+        tprobe = LinearClsProbe(fit_intercept=False)
         tprobe.fit(X[key], y)
         print(tprobe.score(X[key], y))
-        translators[key] = torch.from_numpy(
-            np.transpose(tprobe.coef_)).to(model.cfg.device)
+        W = tprobe.model.weight.data
+        W = W.T
+        translators[key] = W.to(model.cfg.device)
     return translators

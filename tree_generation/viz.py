@@ -72,7 +72,13 @@ def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter 
     return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
 
-def parse_example(example_str):
+def parse_example(example_str: str, highlight_nodes: list = []):
+    """Generate a visualization of the example
+
+    Args:
+        example_str (str): Example string
+        highlight_nodes (list, optional): List of nodes to give highlighted borders. Defaults to [].
+    """
     # Extract edgelist
     graph = example_str.split("|")[0]
     graph = graph.split(",")
@@ -96,6 +102,9 @@ def parse_example(example_str):
     # Create networkx graph
     G = nx.DiGraph()
     G.add_nodes_from(range(len(nodes)))
+    node_edge_sizes = [0 for i in range(len(nodes))]
+    for h in highlight_nodes:
+        node_edge_sizes[h] = 5
     for edge in edgelist:
         if edge in path_edges:
             color = "red"
@@ -110,6 +119,8 @@ def parse_example(example_str):
         font_weight="bold",
         connectionstyle='arc3, rad = 0.1',
         with_labels=True,
+        edgecolors="darkgoldenrod",
+        linewidths=node_edge_sizes,
         arrowsize=15,
         width=1.5,
         node_size=800,
