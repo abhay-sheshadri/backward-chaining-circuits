@@ -2,8 +2,8 @@ import argparse
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 
-from tree_generation import GraphDataset
-from utils import train, get_loaders
+from src.tree_generation import GraphDataset
+from src.utils import train, get_loaders
 
 
 def main(args):
@@ -31,7 +31,7 @@ def main(args):
     checkpoint = None
     
     # start training loop
-    train(model, train_loader, test_loader, n_epochs=1000, learning_rate=3e-4)#checkpoint=checkpoint)
+    train(model, train_loader, test_loader, n_epochs=1000, learning_rate=3e-4) # checkpoint=checkpoint)
 
 
 if __name__ == "__main__":
@@ -41,15 +41,15 @@ if __name__ == "__main__":
     # dataset configuration
     parser.add_argument('--n_states', default=16)
     parser.add_argument('--dataset_file_name', default="dataset.txt")
-    parser.add_argument('--n_samples', default=300_000)
+    parser.add_argument('--n_samples', default=150_000)
     parser.add_argument('--batch_size', default=64)
 
     # model configuration
     parser.add_argument('--n_layers', default=6)
-    parser.add_argument('--d_model', default=256)
+    parser.add_argument('--d_model', default=128)
     parser.add_argument('--n_heads', default=1)
-    parser.add_argument('--d_mlp', default=1024)
-    parser.add_argument('--d_head', default=256)
+    parser.add_argument('--d_mlp', default=512)
+    parser.add_argument('--d_head', default=128)
     args = parser.parse_args()
 
     main(args)
