@@ -8,15 +8,14 @@ import torch
 import tqdm.auto as tqdm_auto
 import transformer_lens.utils as tl_util
 from neel_plotly import imshow, line, scatter
-
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import f1_score, accuracy_score
 
-from tree_generation import generate_example
-from utils import *
-from probing import *
+from .probing import *
+from .tree_generation import generate_example
+from .utils import *
 
 
 def display_head(cache, labels, layer, head, show=True):
@@ -50,96 +49,6 @@ def display_head(cache, labels, layer, head, show=True):
         fig.show()
     else:
         return fig
-
-
-def add_attention_blockout(model, layer, head, current, attending):
-    # Define hook function
-    def attention_score_hook_edges(resid_pre, hook, r, c):
-        # Prevent pos r from attending to c
-        resid_pre[:, head, r, c] = 0
-        return resid_pre
-    # Add hook to every layer
-    temp_hook_fn = partial(attention_score_hook_edges, r=current, c=attending)
-    model.blocks[layer].attn.hook_pattern.add_hook(temp_hook_fn)
-
-
-def add_attention_blockout_parallel(model, layer, indices):
-    # indices is a list of (current, attending) 
-    indices = torch.tensor(indices).t()
-    # Define hook function
-    def attention_score_hook_edges(resid_pre, hook, indices):
-        # Prevent pos r from attending to c
-        resid_pre[:, indices[0], indices[1], indices[2]] = 0
-        return resid_pre
-    # Add hook to every layer
-    temp_hook_fn = partial(attention_score_hook_edges, indices=indices)
-    model.blocks[layer].attn.hook_pattern.add_hook(temp_hook_fn)
-
-
-def attention_knockout_discovery(model, dataset, test_graph):
-    # Evaluate model on test_graph
-    model.reset_hooks()
-    pred, correct = eval_model(model, dataset, test_graph)
-    assert correct
-    labels, cache = get_example_cache(pred, model, dataset)
-    # Iterate over heads in each layer
-    ablated_edges = {i: [] for i in range(model.cfg.n_layers)}
-    important_edges = {i: [] for i in range(model.cfg.n_layers)}
-    for l in range(model.cfg.n_layers-1, -1, -1):
-        for h in range(model.cfg.n_heads):
-            # Check if we can remove attention edges without affecting the correctness of the output
-            for i in range(model.cfg.n_ctx):
-                for j in range(i, -1, -1):
-                    model.reset_hooks()                  
-                    # Add already ablated edges
-                    for L in ablated_edges.keys():
-                        inds = ablated_edges[L]
-                        if len(inds) == 0:
-                            continue
-                        add_attention_blockout_parallel(model, L, inds)
-                    # Block new edge
-                    add_attention_blockout(model, l, h, i, j)
-                    # If correct, add it to the ablations list
-                    correct = is_model_correct(model, dataset, test_graph)
-                    if correct:
-                        ablated_edges[l].append((h, i, j))
-                    else:
-                        important_edges[l].append((h, i, j))
-                        print(f"Breaking: Layer {l} head {h}, labels[{i}] attending to labels[{j}], {labels[i]} attending to {labels[j]}")
-    return ablated_edges, important_edges
-
-
-def attention_knockout_discovery_multiple(model, dataset, multiple_test_graphs):
-    # Iterate over heads in each layer
-    ablated_edges = {i: [] for i in range(model.cfg.n_layers)}
-    important_edges = {i: [] for i in range(model.cfg.n_layers)}
-    for l in range(model.cfg.n_layers-1, -1, -1):
-        for h in range(model.cfg.n_heads):
-            # Check if we can remove attention edges without affecting the correctness of the output
-            for i in range(model.cfg.n_ctx):
-                for j in range(i, -1, -1):
-                    model.reset_hooks()                  
-                    # Add already ablated edges
-                    for L in ablated_edges.keys():
-                        inds = ablated_edges[L]
-                        if len(inds) == 0:
-                            continue
-                        add_attention_blockout_parallel(model, L, inds)
-                    # Block new edge
-                    add_attention_blockout(model, l, h, i, j)
-                    # Check if ablations allow the model to get the correct input on all of the graphs
-                    all_correct = True
-                    for test_graph in multiple_test_graphs:
-                        correct = is_model_correct(model, dataset, test_graph)
-                        if not correct:
-                            all_correct = False
-                    # If correct, add it to the ablations list
-                    if all_correct:
-                        ablated_edges[l].append((h, i, j))
-                    else:
-                        important_edges[l].append((h, i, j))
-                        print(f"Breaking: Layer {l} head {h}, labels[{i}] attending to labels[{j}]")
-    return ablated_edges, important_edges
 
 
 def logits_to_logit_diff(clean_tokens, corrupted_tokens, logits, comparison_index):
@@ -248,6 +157,7 @@ def logit_lens(pred, model, dataset, lenses=None):
     figure.show()
 
 
+
 def logit_lens_correct_probs(pred, model, dataset, position, lenses=None):
     # Get labels and cache
     labels, cache = get_example_cache(pred, model, dataset)
@@ -320,7 +230,8 @@ def calculate_tuned_lens(model, dataset):
         dataset=dataset,
         activation_keys=[tl_util.get_act_name("normalized", block, "ln1") 
                             for block in range(1, model.cfg.n_layers)] + ["ln_final.hook_normalized"],
-        n_samples=8192,
+        n_samples=16384,
+        order="random"
     )
     # Create input/output pairs
     X = {key: [] for key in acts.keys()}
@@ -330,7 +241,7 @@ def calculate_tuned_lens(model, dataset):
         tokens = dataset.tokenize(graph)[:-1]
         start_idx = np.where(tokens == dataset.start_token)[0].item() + 2
         labels = [dataset.idx2tokens[idx] for idx in tokens]
-        end_idx = num_last(labels, ",") + 1
+        end_idx = num_last(labels, ",") #+ 1
         y.append(tokens[start_idx:end_idx])
         # Iterate over all layers residual streams
         for key in X.keys():

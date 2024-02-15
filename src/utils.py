@@ -1,12 +1,11 @@
 import os
 import time
 
+import networkx as nx
 import numpy as np
 import torch
-from tqdm import tqdm
-import networkx as nx
-
 import wandb
+from tqdm import tqdm
 
 
 def get_loaders(dataset, batch_size, train_test_split=0.9):
@@ -200,6 +199,24 @@ def extract_adj_matrix(example_str, power=None):
         return adjacency
 
 
+def find_leaf_nodes(example_str, remove_goal=False):
+    # Convert to adj matrix
+    adj_matrix = extract_adj_matrix(example_str)
+    n_nodes = len(adj_matrix)
+    leaf_nodes_vector = [0] * n_nodes  # Initialize vector with all zeros
+    # Iterate through the rows of the adjacency matrix
+    for i in range(n_nodes):
+        out_degree = sum(adj_matrix[i])  # Sum of elements in row i indicates out-degree
+        # Check if the node does not have outgoing edges
+        if out_degree == 0:
+            leaf_nodes_vector[i] = 1  # Mark this node as a leaf node
+    # If specified, remove the goal node from the list of leafs
+    if remove_goal:
+        goal_leaf = int(example_str.split("|")[1].split(":")[0])
+        leaf_nodes_vector[goal_leaf] = 0
+    return np.array(leaf_nodes_vector)
+
+
 def num_last(arr, char):
     fidx = len(arr) - 1
     while arr[fidx] == char and fidx >= 0:
@@ -207,12 +224,9 @@ def num_last(arr, char):
     return fidx + 1
 
 
-def eval_model(model, dataset, test_graph, add_hooks_fn=None):
+def eval_model(model, dataset, test_graph):
     # Prepare model
     model.eval()
-    model.reset_hooks()
-    if add_hooks_fn is not None:
-        add_hooks_fn(model)
     
     # Initialize counters
     test_graph_tokens = dataset.tokenize(test_graph)
@@ -238,12 +252,9 @@ def eval_model(model, dataset, test_graph, add_hooks_fn=None):
     return final_path, test_graph == final_path
 
 
-def is_model_correct(model, dataset, test_graph, return_probs=False, add_hooks_fn=None):
+def is_model_correct(model, dataset, test_graph, return_probs=False):
     # Prepare model
     model.eval()
-    model.reset_hooks()
-    if add_hooks_fn is not None:
-        add_hooks_fn(model)
 
     # Initialize counters
     test_graph_tokens = dataset.tokenize(test_graph)
@@ -258,5 +269,68 @@ def is_model_correct(model, dataset, test_graph, return_probs=False, add_hooks_f
         outputs = probs.argmax(-1)
     correct = torch.all(outputs[:, start_idx:end_idx] == input_tokens[:, start_idx+1:end_idx+1]).item()
     if return_probs:
-        return correct, probs
+        return correct, probs[0, start_idx:end_idx]
     return correct
+
+
+def is_model_correct_multiple(model, dataset, multiple_test_graph, return_probs=False):
+    # Prepare model
+    model.eval()
+
+    # Initialize counters
+    multiple_input_tokens = []
+    multiple_start_idx = []
+    multiple_end_idx = []
+    
+    for test_graph in multiple_test_graph:
+        test_graph_tokens = dataset.tokenize(test_graph)
+        start_idx = np.where(test_graph_tokens == dataset.start_token)[0].item() + 1
+        end_idx = num_last([dataset.idx2tokens[i] for i in test_graph_tokens], ",")
+        input_tokens = torch.from_numpy(test_graph_tokens).to(torch.long).cuda()
+        input_tokens = input_tokens.unsqueeze(0)[:, :-1]
+        multiple_input_tokens.append(input_tokens)
+        multiple_start_idx.append(start_idx)
+        multiple_end_idx.append(end_idx)
+        
+    multiple_input_tokens = torch.cat(multiple_input_tokens, dim=0)
+    
+    # Run model
+    with torch.no_grad():
+        probs = model(multiple_input_tokens).softmax(-1)
+        outputs = probs.argmax(-1)
+        
+    correct = 0
+    organized_probs = []
+    for idx, (start, end) in enumerate(zip(multiple_start_idx, multiple_end_idx)):
+        # Getting the prediction for the current example and comparing to target
+        prediction = outputs[idx, start:end]
+        organized_probs.append(probs[idx, start:end])
+        target = multiple_input_tokens[idx, start+1:end+1]
+        correct += torch.all(prediction == target).item()
+
+    # Now `correct` will store the number of correct instances
+    correct = (correct == len(multiple_input_tokens))
+
+    if return_probs:
+        return correct, torch.cat(organized_probs, dim=0)
+    return correct
+
+
+def tie_weights(model, layers):
+    # Retrieves param with given name
+    def get_named_param(model, param):
+        curr = model
+        for part in param.split("."):
+            curr = getattr(curr, part)
+        return curr
+    # Sets param in model to passed in param
+    def set_named_param(model, param, new_weight):
+        curr = model
+        for part in param.split(".")[:-1]:
+            curr = getattr(curr, part)    
+        setattr(curr, param.split(".")[-1], new_weight)
+    # Set all layers equal to each other
+    source = layers[0]
+    for name, param in list(model.blocks[source].named_parameters()):
+        for layer in layers[1:]:
+            set_named_param(model.blocks[layer], name, param)

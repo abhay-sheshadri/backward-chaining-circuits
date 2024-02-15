@@ -72,7 +72,7 @@ def hierarchy_pos(G, root=None, width=1., vert_gap = 0.2, vert_loc = 0, xcenter 
     return _hierarchy_pos(G, root, width, vert_gap, vert_loc, xcenter)
 
 
-def parse_example(example_str: str, highlight_nodes: list = []):
+def parse_example(example_str: str, highlight_nodes: list = [], ax=None):
     """Generate a visualization of the example
 
     Args:
@@ -103,8 +103,8 @@ def parse_example(example_str: str, highlight_nodes: list = []):
     G = nx.DiGraph()
     G.add_nodes_from(range(len(nodes)))
     node_edge_sizes = [0 for i in range(len(nodes))]
-    for h in highlight_nodes:
-        node_edge_sizes[h] = 5
+    for h, w in highlight_nodes:
+        node_edge_sizes[h] = w*5
     for edge in edgelist:
         if edge in path_edges:
             color = "red"
@@ -115,6 +115,7 @@ def parse_example(example_str: str, highlight_nodes: list = []):
     new_pos = {u:(r*math.cos(theta),r*math.sin(theta)) for u, (theta, r) in pos.items()}
     nx.draw(
         G,
+        ax=ax,
         pos=new_pos,
         font_weight="bold",
         connectionstyle='arc3, rad = 0.1',

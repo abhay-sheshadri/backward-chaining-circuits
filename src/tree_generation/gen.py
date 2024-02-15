@@ -147,7 +147,7 @@ def generate_example(
     # Sample tree and path with path_length
     rng = np.random.default_rng(seed=seed)
     if path_length is None:
-        path_length = rng.integers(1, n_states)
+        path_length = rng.integers(1, n_states // 3 * 2)
     graph, start_node, goal = sample_tree_graph(n_states, path_length, rng, is_binary)
     edgelist = topological_sort_edges(graph)
     if order == "random":
@@ -170,5 +170,139 @@ def generate_example(
     # Return all leafs if specified
     if return_all_leafs:
         return list(examples.values())
+    else:
+        return examples[goal]
+
+
+def sample_tree_graph_secondary_path(
+    n_states: int,
+    path_length: int,
+    rng: np.random.Generator,
+    is_binary: bool = True,
+    second_path_min_length: int = None,
+):
+    """Generate a random tree with the specified params
+
+    Args:
+        n_states (int): Number of nodes in tree
+        path_length (int): Length of path
+        rng (np.random.Generator): Random number generator
+        is_binary (bool, optional): Whether or not each node can have a 
+        max of two children. Defaults to False.
+
+    Returns:
+        Tuple[nx.DiGraph, int, int]: Return the graph, the root, and the goal node
+    """
+    # Create adjacency matrix
+    adj_matrix = np.zeros((n_states, n_states))
+    source_node = None
+    destination_node = None
+    second_source = None
+    second_path_destination_node = None
+    nodes = [i for i in range(n_states)]
+    nodes_in_tree = []
+    intermediate_node = None
+    # Generate path of defined 'path_length'
+    for i in range(path_length + 1):  # '+ 1' as we have to sample the source node first 
+        # sample example and remove it from the list of nodes
+        sample_node = rng.choice(nodes, 1)[0]
+        nodes.remove(sample_node)
+        nodes_in_tree.append(sample_node)
+        # construct the edge and add it to the edge list
+        if source_node is None:
+            source_node = sample_node
+        else:
+            adj_matrix[intermediate_node, sample_node] = 1
+        intermediate_node = sample_node
+    destination_node = intermediate_node
+    # Add other nodes until requested 'n_states'
+    nodes_in_tree.remove(destination_node)  # remove destination to ensure we don't increase path length
+    if second_path_min_length is not None and len(nodes)>=second_path_min_length:
+        for i in range(second_path_min_length):
+            sample_node = rng.choice(nodes, 1)[0]
+            nodes.remove(sample_node)
+            nodes_in_tree.append(sample_node)
+            if second_source is None:
+                adj_matrix[source_node, sample_node] = 1
+                second_source = sample_node
+            else:
+                adj_matrix[intermediate_node, sample_node] = 1
+            intermediate_node = sample_node  
+        second_path_destination_node = intermediate_node      
+             
+    for n in nodes:
+        # Sample a position in the tree
+        if is_binary:
+            valid_parents = [node for node in nodes_in_tree if adj_matrix[node].sum() < 2]
+        else:
+            valid_parents = nodes_in_tree
+        connection_node = rng.choice(valid_parents, 1)[0]
+        # Integrate node
+        adj_matrix[connection_node, n] = 1
+        nodes_in_tree.append(n)
+        if connection_node == second_path_destination_node:
+            second_path_destination_node = n
+
+    # Create networkx object
+    tree = nx.DiGraph(incoming_graph_data=adj_matrix)
+    return tree, source_node,destination_node, second_source,second_path_destination_node
+
+
+def generate_example_secondary_path(
+    n_states: int,
+    seed: int,
+    order: str = "random",
+    path_length: int = None,
+    return_second_goal: bool = False,
+    return_all_leafs: bool = False,
+    is_binary: bool = True,
+    second_path_min_length= None,
+):
+    """Generates a random example involving an edgelist of a tree, a leaf node, and a path from the root node to the leaf
+    Args:
+        n_states (int): Number of nodes in graph
+        seed (int): Seed for rng that generates graph
+        order (str, optional): The order of the edges in the edgelist. Defaults to "random".
+        path_length (int, optional): Distance between root and goal in example. Defaults to None.
+        return_all_leafs (bool, optional): Whether to return all possible path. Defaults to False.
+        is_binary (bool, optional): Whether or not the tree should be binary. Defaults to False.
+
+    Returns:
+        Returns single string by default
+        Returns a list of all possible example strings if return_all_leafs is True
+    """
+    assert n_states >= 2
+    assert path_length is None or path_length < n_states
+    assert order in ["forward", "backward", "random"]
+    # Sample tree and path with path_length
+    rng = np.random.default_rng(seed=seed)
+    if path_length is None:
+        path_length = rng.integers(1, n_states)
+    if second_path_min_length is None and path_length != 15:
+        second_path_min_length = rng.integers(1, 15 - path_length + 1)
+    graph, start_node, goal,second_path_start,second_path_goal = sample_tree_graph_secondary_path(n_states, path_length, rng, is_binary,second_path_min_length)
+    edgelist = topological_sort_edges(graph)
+    if order == "random":
+        rng.shuffle(edgelist)
+    elif order == "backward":
+        edgelist = edgelist[::-1]
+    # Create all possible examples from edgelist
+    source_nodes = set([source for source, target in edgelist])
+    target_nodes = set([target for source, target in edgelist])
+    leaf_nodes = target_nodes - source_nodes
+    # Sample all possible paths
+    examples = {}
+    for end_node in list(leaf_nodes):
+        path = shortest_path(edgelist, n_states, start_node, end_node)
+        # Convert to a series of tokens
+        string = ",".join([f"{i}>{j}" for i, j in edgelist])
+        string = string + f"|{end_node}:"
+        string = string + ">".join([str(p) for p in path])
+        examples[end_node] = string
+    # Return all leafs if specified
+    if return_all_leafs:
+        return list(examples.values())
+    elif return_second_goal and second_path_goal is not None:
+        return examples[goal], examples[second_path_goal] 
     else:
         return examples[goal]

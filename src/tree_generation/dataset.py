@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from . import generate_example, parse_example
+from . import generate_example, generate_example_secondary_path, parse_example
 
 
 def generate_dataset_file(n_states, file_name, n_examples):
@@ -21,9 +21,14 @@ def generate_dataset_file(n_states, file_name, n_examples):
         print("Generating file...")
         with open(file_name, "w") as f:
             for seed in range(n_examples):
-                line = generate_example(
+                if seed % 2 == 0:
+                    order = "backward"
+                else:
+                    order = "random"
+                line = generate_example_secondary_path(
                     n_states=n_states,
-                    seed=seed
+                    seed=seed,
+                    order=order
                 )
                 f.write(line+"\n")
 
